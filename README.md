@@ -13,7 +13,7 @@ examples below use the timezone and default alert time from
 |---|---|---|
 |Timezone|IANA timezone used to interpret task dates and local reminder times. Initially uses your device's timezone, or UTC if unavailable.|`America/Los_Angeles`|
 |Default alert time|Time used by an empty `🔔`, offsets without `at`, and the implicit one-shot in a repeat-only field. Defaults to `09:00:00`.|`09:00:00`|
-|ntfy.sh server|Base URL of the ntfy server included in the reminder export. Defaults to `https://ntfy.sh`.|`https://ntfy.sh`|
+|ntfy.sh server|Full ntfy URL including a topic and auth (if nesessary); required for delivery. Initially blank.|`https://ntfy.sh/your-topic`|
 |notifox server|URL that receives the complete `reminders.json` via POST after each changed export. Blank disables POSTs (default).|`https://example.com/reminders`|
 
 ## Usage
@@ -51,8 +51,7 @@ it if no filter is configured. Examples use `America/Los_Angeles` and `09:00:00`
 The plugin requires Tasks 8.x and honors its Global Filter marker. It writes a
 complete nested JSON object to `plugins/notifox-reminders/reminders.json` under the
 vault configuration directory. Configure the vault timezone, default alert
-time, and ntfy server in the plugin settings. The ntfy server defaults to
-`https://ntfy.sh`.
+time, and ntfy server in the plugin settings. Set the ntfy server to a full topic URL such as `https://ntfy.sh/your-topic`, and optionally append an `auth` query parameter ([ntfy authentication](https://docs.ntfy.sh/publish/#query-param)).
 
 ## Issues
 

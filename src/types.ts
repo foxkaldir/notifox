@@ -1,6 +1,7 @@
 import type { Temporal } from '@js-temporal/polyfill';
 
 export type Anchor = 'due' | 'scheduled' | 'start';
+export type Priority = 'highest' | 'high' | 'medium' | 'low' | 'lowest';
 export type Direction = 'before' | 'after';
 export type StatusType = 'TODO' | 'IN_PROGRESS' | 'ON_HOLD' | 'DONE' | 'CANCELLED' | 'NON_TASK';
 export type Unit = 'second' | 'minute' | 'hour' | 'day' | 'week';
@@ -62,6 +63,8 @@ export interface TaskDates {
 }
 
 export interface DiscoveredTask {
+  text: string;
+  priority?: Priority;
   path: string;
   lineNumber: number;
   rawLine: string;
@@ -83,6 +86,8 @@ export interface ResolvedReminder {
 
 export interface ExportReminder {
   line: number;
+  text: string;
+  priority?: Priority;
   'one-shots'?: Array<{ timestamp: string }>;
   repeat?: { timestamp: string; duration: number };
 }

@@ -1,6 +1,7 @@
 import { PluginSettingTab, Setting, type App } from 'obsidian';
 import type NotifoxRemindersPlugin from './main';
 import { timeZoneOptions } from './time-zones';
+import { isNtfyTopicUrl } from './integrations/ntfy';
 
 export interface NotifoxSettings {
   vaultId: string;
@@ -13,7 +14,7 @@ export interface NotifoxSettings {
 export const DEFAULT_SETTINGS: Omit<NotifoxSettings, 'vaultId'> = {
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   defaultAlertTime: '09:00:00',
-  ntfyServer: 'https://ntfy.sh',
+  ntfyServer: '',
   notifoxServer: ''
 };
 
@@ -53,9 +54,12 @@ export class NotifoxSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('ntfy.sh server')
-      .setDesc('Base URL of the ntfy server that receives reminder notifications.')
-      .addText((text) => text.setPlaceholder('https://ntfy.sh').setValue(this.plugin.settings.ntfyServer).onChange(async (value) => {
+      .setDesc('HTTP(S) URL including the topic, for example https://ntfy.sh/your-topic. Optionally include ntfy authentication using ?auth=… in this URL.')
+      .addText((text) => text.setPlaceholder('https://ntfy.sh/your-topic').setValue(this.plugin.settings.ntfyServer).onChange(async (value) => {
+        text.inputEl.setCustomValidity(isNtfyTopicUrl(value.trim()) ? '' : 'Enter an HTTP(S) URL including one topic.');
+        text.inputEl.reportValidity();
         await this.plugin.updateSettings({ ntfyServer: value.trim() });
       }));
+
   }
 }

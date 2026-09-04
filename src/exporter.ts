@@ -1,5 +1,6 @@
 import { Temporal } from '@js-temporal/polyfill';
 import { Notice, TFile, TFolder, normalizePath, requestUrl, type App, type TAbstractFile } from 'obsidian';
+import { isNtfyTopicUrl } from './integrations/ntfy';
 import { parse } from './parser';
 import { parseDefaultAlertTime, resolveReminder } from './resolver';
 import {
@@ -51,7 +52,8 @@ function collectFileReminders(
     if (!parsed.ok) return [];
     const resolved = resolveReminder(parsed.field, task, resolver);
     if (!resolved) return [];
-    const record: ExportReminder = { line: task.lineNumber };
+    const record: ExportReminder = { line: task.lineNumber, text: task.text };
+    if (task.priority) record.priority = task.priority;
     if (resolved.oneShots.length) {
       record['one-shots'] = resolved.oneShots.map((instant) => ({ timestamp: instant.toString() }));
     }
@@ -467,7 +469,8 @@ export class IncrementalReminderExporter {
   // Builds canonical output only when it may need comparison or repair.
   private buildOutputIfNeeded(remindersChanged: boolean, inspectOutput: boolean): string | undefined {
     if (!remindersChanged && !inspectOutput && !this.index.outputRetryNeeded) return undefined;
-    const output = canonicalOutput(this.app.vault.getName(), this.getSettings().ntfyServer, this.index.files);
+    const settings = this.getSettings();
+    const output = canonicalOutput(this.app.vault.getName(), settings.ntfyServer, this.index.files);
     if (this.lastOutputBytes !== output) this.index.outputRetryNeeded = true;
     return output;
   }
@@ -494,6 +497,10 @@ export class IncrementalReminderExporter {
       await this.app.vault.adapter.write(this.outputPath, output);
       this.lastOutputBytes = output;
       this.index.outputRetryNeeded = false;
+      if (!isNtfyTopicUrl(this.getSettings().ntfyServer)
+        && Object.values(this.index.files).some((entry) => entry.reminders.length > 0)) {
+        new Notice('Notifox: open Settings → Notifox reminders and update the ntfy.sh server field to include a topic, for example https://ntfy.sh/your-topic.');
+      }
       await this.postOutput(output);
       await this.persistData();
       return true;

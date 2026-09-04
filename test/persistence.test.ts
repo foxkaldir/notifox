@@ -12,14 +12,14 @@ function pluginData(files: Record<string, FileScanEntry>, outputRetryNeeded = tr
     vaultId: 'vault-id',
     timeZone: 'America/Los_Angeles',
     defaultAlertTime: '09:00',
-    ntfyServer: 'https://ntfy.sh',
+    ntfyServer: 'https://ntfy.sh/your-topic',
     notifoxServer: 'https://example.com/reminders',
     scanIndex: { version: 3, files, outputRetryNeeded }
   };
 }
 
 function reminder(line: number) {
-  return { line };
+  return { line, text: 'Submit' };
 }
 
 function file(overrides: Partial<FileScanEntry> = {}): FileScanEntry {
@@ -35,6 +35,18 @@ function file(overrides: Partial<FileScanEntry> = {}): FileScanEntry {
 }
 
 describe('plugin data persistence', () => {
+  it('rejects old caches missing reminder text and preserves settings for a rescan', () => {
+    const data = pluginData({ 'note.md': file() });
+    const oldCompact = JSON.parse(serializePluginData(data));
+    oldCompact.scanIndex.v = 4;
+    const oldVerbose = { ...data, scanIndex: { ...data.scanIndex, files: {
+      'note.md': file({ reminders: [{ line: 1 } as any] })
+    } } };
+    for (const old of [oldCompact, oldVerbose]) {
+      expect(decodePluginData(old)).toEqual({ ...data, scanIndex: { version: 3, files: {}, outputRetryNeeded: false } });
+    }
+  });
+
   it('migrates verbose scan data without losing any runtime fields', () => {
     const verbose = pluginData({
       'note.md': file({
@@ -44,6 +56,7 @@ describe('plugin data persistence', () => {
           { ...reminder(2), 'one-shots': [] },
           {
             ...reminder(3),
+            priority: 'high',
             'one-shots': [{ timestamp: '2027-04-15T16:00:00Z' }],
             repeat: { timestamp: '2027-04-16T16:00:00Z', duration: 86_400 }
           }
@@ -80,7 +93,7 @@ describe('plugin data persistence', () => {
         vaultId: 'vault-id',
         timeZone: 'America/Los_Angeles',
         defaultAlertTime: '09:00',
-        ntfyServer: 'https://ntfy.sh',
+        ntfyServer: 'https://ntfy.sh/your-topic',
         notifoxServer: 'https://example.com/reminders',
         scanIndex: { version: 3, files: {}, outputRetryNeeded: false }
       });
@@ -125,7 +138,7 @@ const entry: FileScanEntry = {
   size: 20,
   lastScannedAt: 150,
   contentHash: 'abc',
-  reminders: [{ line: 2, 'one-shots': [{ timestamp: '2027-04-15T16:00:00Z' }] }],
+  reminders: [{ line: 2, text: 'Submit', 'one-shots': [{ timestamp: '2027-04-15T16:00:00Z' }] }],
   refreshAfter: '2027-04-15T16:00:00Z',
   fingerprint: 'current'
 };
@@ -169,9 +182,9 @@ describe('canonical output', () => {
   it('sorts file keys and line-numbered reminders into stable bytes', () => {
     const files = {
       'z.md': entry,
-      'a.md': { ...entry, reminders: [{ line: 1 }] }
+      'a.md': { ...entry, reminders: [{ line: 1, text: 'Submit' }] }
     };
-    expect(canonicalOutput('Work Notes', 'https://ntfy.sh', files)).toBe('{\n  "ntfy-server": "https://ntfy.sh",\n  "Work Notes": {\n    "a.md": [\n      {\n        "line": 1\n      }\n    ],\n    "z.md": [\n      {\n        "line": 2,\n        "one-shots": [\n          {\n            "timestamp": "2027-04-15T16:00:00Z"\n          }\n        ]\n      }\n    ]\n  }\n}\n');
+    expect(canonicalOutput('Work Notes', 'https://ntfy.sh/your-topic', files)).toBe('{\n  "ntfy-server": "https://ntfy.sh/your-topic",\n  "Work Notes": {\n    "a.md": [\n      {\n        "line": 1,\n        "text": "Submit"\n      }\n    ],\n    "z.md": [\n      {\n        "line": 2,\n        "text": "Submit",\n        "one-shots": [\n          {\n            "timestamp": "2027-04-15T16:00:00Z"\n          }\n        ]\n      }\n    ]\n  }\n}\n');
   });
 });
 
@@ -185,8 +198,8 @@ describe('cached scan updates', () => {
       fingerprint: HASH_A,
       reparse: false,
       collectReminders: () => [
-        { line: 3, repeat: { timestamp: '2027-04-16T16:00:00Z', duration: 60 } },
-        { line: 1, 'one-shots': [{ timestamp: '2027-04-15T16:00:00Z' }] }
+        { line: 3, text: 'Submit', repeat: { timestamp: '2027-04-16T16:00:00Z', duration: 60 } },
+        { line: 1, text: 'Submit', 'one-shots': [{ timestamp: '2027-04-15T16:00:00Z' }] }
       ]
     };
     const first = await updateScanEntry(options);

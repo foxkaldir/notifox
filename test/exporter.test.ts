@@ -12,7 +12,7 @@ vi.mock('obsidian', () => ({
   requestUrl: vi.fn().mockResolvedValue({ status: 200 })
 }));
 
-import { Notice, requestUrl } from 'obsidian';
+import { Notice, requestUrl, TFile } from 'obsidian';
 
 describe('export POSTs', () => {
   beforeEach(() => {
@@ -28,7 +28,7 @@ describe('export POSTs', () => {
   });
 
   function setup(url = 'https://example.com/reminders') {
-    const settings = { ...DEFAULT_SETTINGS, vaultId: 'vault-id', notifoxServer: url };
+    const settings = { ...DEFAULT_SETTINGS, vaultId: 'vault-id', ntfyServer: 'https://ntfy.sh/your-topic', notifoxServer: url };
     let bytes: string | undefined;
     const write = vi.fn(async (_path: string, output: string) => { bytes = output; });
     const app = {
@@ -44,7 +44,7 @@ describe('export POSTs', () => {
       app, outputPath: 'reminders.json', index,
       getSettings: () => settings, saveData: vi.fn().mockResolvedValue(undefined)
     });
-    return { exporter, settings, write, index };
+    return { exporter, settings, write, index, app };
   }
 
   async function regenerate(exporter: IncrementalReminderExporter) {
@@ -52,9 +52,45 @@ describe('export POSTs', () => {
     await vi.runAllTimersAsync();
   }
 
-  it('POSTs exact saved bytes once and skips unchanged JSON, including URL edits', async () => {
-    const { exporter, settings, write } = setup();
+  it('exports reminder text and optional priority from note content', async () => {
+    vi.setSystemTime(new Date('2027-04-01T00:00:00Z'));
+    const { exporter, settings, write, app } = setup();
+    settings.timeZone = 'UTC';
+    settings.ntfyServer = 'https://ntfy.sh';
+    const note = Object.assign(new TFile(), { path: 'Tasks.md', extension: 'md', stat: { mtime: 1, size: 100 } });
+    app.vault.getMarkdownFiles = () => [note];
+    app.vault.getAbstractFileByPath = () => note;
+    app.vault.cachedRead = async () => [
+      '- [ ] Submit **plan** 🔔 9am ⏫ 📅 2027-04-15',
+      '- [ ] Review 🔔 9am 📅 2027-04-15'
+    ].join('\n');
     await regenerate(exporter);
+    expect(JSON.parse(write.mock.calls[0][1]).Vault['Tasks.md']).toEqual([
+      { line: 1, text: 'Submit **plan**', priority: 'high', 'one-shots': [{ timestamp: '2027-04-15T09:00:00Z' }] },
+      { line: 2, text: 'Review', 'one-shots': [{ timestamp: '2027-04-15T09:00:00Z' }] }
+    ]);
+    expect(Notice).toHaveBeenCalledWith(expect.stringContaining('update the ntfy.sh server field'));
+    vi.mocked(Notice).mockClear();
+    await regenerate(exporter);
+    expect(Notice).not.toHaveBeenCalledWith(expect.stringContaining('update the ntfy.sh server field'));
+    settings.ntfyServer = 'https://ntfy.sh/afml98o23uf9q8a23jfa';
+    await regenerate(exporter);
+    expect(Notice).not.toHaveBeenCalledWith(expect.stringContaining('update the ntfy.sh server field'));
+  });
+
+  it('does not warn about missing topics for empty exports', async () => {
+    const { exporter, settings, write } = setup();
+    settings.ntfyServer = '';
+    await regenerate(exporter);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(Notice).not.toHaveBeenCalledWith(expect.stringContaining('update the ntfy.sh server field'));
+  });
+
+  it('preserves URL auth, POSTs changed bytes, and skips unchanged JSON including receiver edits', async () => {
+    const { exporter, settings, write } = setup();
+    settings.ntfyServer = 'https://ntfy.sh/your-topic?auth=QmVhcmVyIHRrX3Rlc3Q';
+    await regenerate(exporter);
+    expect(JSON.parse(write.mock.calls[0][1])['ntfy-server']).toBe(settings.ntfyServer);
     expect(requestUrl).toHaveBeenCalledExactlyOnceWith({
       url: settings.notifoxServer, method: 'POST', contentType: 'application/json',
       body: write.mock.calls[0][1]
@@ -65,8 +101,10 @@ describe('export POSTs', () => {
     await vi.runAllTimersAsync();
     expect(write).toHaveBeenCalledTimes(1);
     expect(requestUrl).toHaveBeenCalledTimes(1);
-    settings.ntfyServer = 'https://ntfy.example.com';
-    await regenerate(exporter);
+    settings.ntfyServer = 'https://ntfy.example.com/your-topic';
+    await exporter.settingsChanged();
+    await vi.runAllTimersAsync();
+    expect(JSON.parse(write.mock.calls[1][1])['ntfy-server']).toBe(settings.ntfyServer);
     expect(requestUrl).toHaveBeenCalledTimes(2);
     expect(vi.mocked(requestUrl).mock.calls[1][0]).toMatchObject({
       url: settings.notifoxServer, body: write.mock.calls[1][1]

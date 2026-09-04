@@ -1,10 +1,11 @@
 import type { App } from 'obsidian';
-import type { Diagnostic, DiscoveredTask, StatusType } from '../types';
+import type { Diagnostic, DiscoveredTask, Priority, StatusType } from '../types';
 
 const TASKS_PLUGIN_ID = 'obsidian-tasks-plugin';
 const TASK_METADATA_EMOJI = ['📅', '⏳', '🛫', '➕', '✅', '❌', '🔁', '🔺', '⏫', '🔼', '🔽', '⏬', '🆔', '⛔', '🏁'];
 const TASK_METADATA = new RegExp(TASK_METADATA_EMOJI.join('|'), 'g');
 const ACTIVE_TYPES = new Set<StatusType>(['TODO', 'IN_PROGRESS', 'ON_HOLD']);
+const PRIORITIES: Record<string, Priority> = { '🔺': 'highest', '⏫': 'high', '🔼': 'medium', '🔽': 'low', '⏬': 'lowest' };
 
 export interface TasksConfiguration {
   globalFilter: string;
@@ -19,6 +20,11 @@ export interface TasksConfigurationResult {
 export interface TasksConfigurationFailure {
   ok: false;
   diagnostic: Diagnostic;
+}
+
+// Validates an explicitly assigned Tasks priority.
+export function isPriority(value: unknown): value is Priority {
+  return typeof value === 'string' && ['highest', 'high', 'medium', 'low', 'lowest'].includes(value);
 }
 
 function statusType(value: unknown): StatusType | undefined {
@@ -113,6 +119,14 @@ function matchesGlobalFilter(body: string, globalFilter: string): boolean {
   return body.toLocaleLowerCase().includes(globalFilter.toLocaleLowerCase());
 }
 
+// Removes the configured literal Global Filter from the reminder description.
+function reminderText(description: string, globalFilter: string): string {
+  if (!globalFilter) return description.trim();
+  const escaped = globalFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return description.replace(new RegExp(escaped, 'gi'), '').trim();
+}
+
+// Discovers active reminder tasks and their description, priority, and schedule fields.
 export function discoverTasks(
   path: string,
   content: string,
@@ -142,7 +156,10 @@ export function discoverTasks(
       continue;
     }
     const fieldStart = bell + '🔔'.length;
+    const priorityEmoji = metadata === undefined ? undefined : /🔺|⏫|🔼|🔽|⏬/.exec(body.slice(metadata))?.[0];
     tasks.push({
+      text: reminderText(body.slice(0, bell), configuration.globalFilter),
+      ...(priorityEmoji ? { priority: PRIORITIES[priorityEmoji] } : {}),
       path,
       lineNumber: offset + 1,
       rawLine,

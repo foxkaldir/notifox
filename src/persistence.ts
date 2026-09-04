@@ -1,14 +1,14 @@
 import type { NotifoxSettings } from './settings';
-import type { TasksConfiguration } from './integrations/obsidian-tasks-plugin';
-import type { ExportReminder } from './types';
+import { isPriority, type TasksConfiguration } from './integrations/obsidian-tasks-plugin';
+import type { ExportReminder, Priority } from './types';
 
 export interface PluginData extends NotifoxSettings {
   scanIndex?: ScanIndex;
 }
 
 const SCAN_INDEX_VERSION = 3;
-const EXPORTER_SCHEMA_VERSION = 3;
-const PERSISTENCE_VERSION = 4;
+const EXPORTER_SCHEMA_VERSION = 4;
+const PERSISTENCE_VERSION = 5;
 const HEX_HASH = /^[0-9a-f]{64}$/;
 const BASE64URL_HASH = /^[A-Za-z0-9_-]{43}$/;
 
@@ -40,6 +40,8 @@ function isReminder(value: unknown): value is ExportReminder {
   const oneShots = record['one-shots'];
   const repeat = record.repeat as Record<string, unknown> | undefined;
   return Number.isInteger(record.line) && (record.line as number) > 0
+    && typeof record.text === 'string'
+    && (record.priority === undefined || isPriority(record.priority))
     && (oneShots === undefined || (Array.isArray(oneShots) && oneShots.every((item) => {
       return Boolean(item) && typeof item === 'object' && typeof (item as Record<string, unknown>).timestamp === 'string';
     })))
@@ -133,7 +135,7 @@ export function shouldScanEntry(
   };
 }
 
-type ReminderTuple = [number, string[] | null, [string, number] | null];
+type ReminderTuple = [number, string, Priority | null, string[] | null, [string, number] | null];
 type FileTuple = [
   // path: Markdown file path relative to the vault root.
   string,
@@ -149,7 +151,7 @@ type FileTuple = [
   number,
   // refreshAfter: Earliest cached reminder timestamp, or null when no refresh is scheduled.
   string | null,
-  // reminders: Cached [line, one-shot timestamps or null, [repeat timestamp, interval seconds] or null] tuples.
+  // reminders: Cached [line, text, priority or null, one-shots or null, repeat or null] tuples.
   ReminderTuple[]
 ];
 
@@ -200,26 +202,28 @@ function decodeHash(hash: string): string | undefined {
 function encodeReminder(reminder: ExportReminder): ReminderTuple {
   const oneShots = reminder['one-shots']?.map(({ timestamp }) => timestamp) ?? null;
   const repeat = reminder.repeat ? [reminder.repeat.timestamp, reminder.repeat.duration] as [string, number] : null;
-  return [reminder.line, oneShots, repeat];
+  return [reminder.line, reminder.text, reminder.priority ?? null, oneShots, repeat];
 }
 
 // Decodes and validates one compact reminder tuple.
 function decodeReminder(value: unknown): ExportReminder | undefined {
-  if (!Array.isArray(value) || value.length !== 3 || !Number.isInteger(value[0]) || value[0] < 1) return undefined;
-  const [line, oneShots, repeat] = value;
+  if (!Array.isArray(value) || value.length !== 5 || !Number.isInteger(value[0]) || value[0] < 1) return undefined;
+  const [line, text, priority, oneShots, repeat] = value;
+  if (typeof text !== 'string' || (priority !== null && !isPriority(priority))) return undefined;
   if (oneShots !== null && (!Array.isArray(oneShots)
     || !oneShots.every((timestamp: unknown) => typeof timestamp === 'string'))) {
     return undefined;
   }
   if (repeat !== null && (!Array.isArray(repeat) || repeat.length !== 2
     || typeof repeat[0] !== 'string' || !Number.isFinite(repeat[1]))) return undefined;
-  const reminder: ExportReminder = { line };
+  const reminder: ExportReminder = { line, text };
+  if (priority !== null) reminder.priority = priority;
   if (oneShots !== null) reminder['one-shots'] = (oneShots as string[]).map((timestamp) => ({ timestamp }));
   if (repeat !== null) reminder.repeat = { timestamp: repeat[0], duration: repeat[1] };
   return reminder;
 }
 
-// Encodes the runtime scan index into deterministic compact version 4 tuples.
+// Encodes the runtime scan index into deterministic compact version 5 tuples.
 function encodeScanIndex(index: ScanIndex): CompactScanIndex {
   const hashes = [...new Set(Object.values(index.files).map((entry) => entry.fingerprint))].sort();
   const hashIndexes = new Map(hashes.map((hash, position) => [hash, position]));
@@ -237,7 +241,7 @@ function encodeScanIndex(index: ScanIndex): CompactScanIndex {
   return { v: PERSISTENCE_VERSION, h: hashes.map(encodeHash), f: files, r: index.outputRetryNeeded };
 }
 
-// Decodes a complete compact version 4 scan index or rejects it for a safe rescan.
+// Decodes a complete compact version 5 scan index or rejects it for a safe rescan.
 function decodeScanIndex(value: unknown): ScanIndex | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const candidate = value as Partial<CompactScanIndex>;

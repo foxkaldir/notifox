@@ -89,7 +89,7 @@ The runtime scan cache and compact storage codec for internal plugin state.
 
 - Defines plugin data, per-file scan entries, and the complete scan index.
 - Loads valid settings and compact or legacy verbose scan data, recovering an empty index for missing or corrupt caches.
-- Serializes internal state to deterministic, minified version 4 tuples with deduplicated fingerprints and base64url hashes.
+- Serializes internal state to deterministic, minified version 5 tuples with deduplicated fingerprints and base64url hashes.
 - Computes configuration fingerprints and decides when cached files need scanning or reparsing.
 - Updates cached file results by hashing content, reusing or collecting reminders, and tracking expiry and output changes.
 - Produces stable, sorted `reminders.json` content.
@@ -100,7 +100,7 @@ The runtime scan cache and compact storage codec for internal plugin state.
 The user-facing settings model and Obsidian settings tab.
 
 - Defines the persisted Notifox settings and their defaults.
-- Renders controls for timezone, default alert time, ntfy server URL, and notifox server URL.
+- Renders controls for timezone, default alert time, ntfy topic URL (including optional auth query parameter), and notifox server URL.
 - Sends edits back to the plugin so they can be saved and trigger reconciliation.
 
 ### `src/time-zones.ts`

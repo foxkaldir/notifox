@@ -5,14 +5,14 @@ import { describe, expect, it } from 'vitest';
 import { parse } from '../src/parser';
 import { resolutionDiagnostic, resolveReminder } from '../src/resolver';
 import { discoverTasks } from '../src/integrations/obsidian-tasks-plugin';
-import type { DiscoveredTask, ResolverSettings, StatusType, TaskDates } from '../src/types';
+import type { DiscoveredTask, Priority, ResolverSettings, StatusType, TaskDates } from '../src/types';
 
 const settings: ResolverSettings = { timeZone: 'America/Los_Angeles', defaultAlertTime: { hour: 9, minute: 0, second: 0 }, now: Temporal.Instant.from('2026-01-01T00:00:00Z') };
 const standardDates: TaskDates = { due: '2027-04-15', scheduled: '2027-04-10', start: '2027-04-01' };
-const configuration = { globalFilter: '', statusTypes: new Map<string, StatusType>([[' ', 'TODO'], ['x', 'DONE']]) };
+const standardConfiguration = { globalFilter: '', statusTypes: new Map<string, StatusType>([[' ', 'TODO'], ['x', 'DONE']]) };
 
 function fixture(dates: TaskDates = standardDates): DiscoveredTask {
-  return { path: 'Fixture.md', lineNumber: 1, rawLine: '- [ ] Submit', statusType: 'TODO', dates, fieldText: '' };
+  return { path: 'Fixture.md', lineNumber: 1, rawLine: '- [ ] Submit', text: 'Submit', statusType: 'TODO', dates, fieldText: '' };
 }
 
 function local(instant: Temporal.Instant): string {
@@ -24,7 +24,7 @@ function local(instant: Temporal.Instant): string {
 interface ResolvesCase { id: string; field: string; oneShots: string[]; dates?: TaskDates; repeat?: [string, number]; seed?: string; exactOneShots?: string[] }
 interface ParseErrorCase { id: string; field: string; parseError: string }
 interface ResolutionErrorCase { id: string; field: string; dates: TaskDates; resolutionError: string }
-interface ValidDiscoveryCase { id: string; taskLine: string; fieldText: string; dates?: TaskDates; oneShots: string[]; repeat?: [string, number]; discoveryError?: never }
+interface ValidDiscoveryCase { id: string; taskLine: string; fieldText: string; dates?: TaskDates; oneShots: string[]; repeat?: [string, number]; discoveryError?: never; globalFilter?: string; text?: string; priority?: Priority | null }
 interface SkippedDiscoveryCase { id: string; taskLine: string; fieldText?: never; dates?: never; oneShots?: never; repeat?: never; discoveryError?: string }
 type DiscoveryCase = ValidDiscoveryCase | SkippedDiscoveryCase;
 type MatrixCase = ResolvesCase | ParseErrorCase | ResolutionErrorCase | DiscoveryCase;
@@ -35,6 +35,7 @@ type MatrixCase = ResolvesCase | ParseErrorCase | ResolutionErrorCase | Discover
  * followed by a describe block that runs the whole array through testMatrixCases.
  * Use `field` for reminder-field content and `taskLine` for extraction cases.
  * Every valid case declares its expected one-shots and optional repeat.
+ * Discovery uses the empty standard Global Filter unless the case overrides it.
  * Write every case as a complete object; do not generate section cases with map.
  * When the matrix changes, update the matching array; the inventory guard rejects
  * missing, duplicate, extra, and out-of-order IDs.
@@ -42,13 +43,19 @@ type MatrixCase = ResolvesCase | ParseErrorCase | ResolutionErrorCase | Discover
 function testMatrixCases(cases: readonly MatrixCase[]): void {
   it.each(cases)('$id', (testCase) => {
     if ('taskLine' in testCase) {
-      const result = discoverTasks('Tasks.md', testCase.taskLine, configuration);
+      const result = discoverTasks('Tasks.md', testCase.taskLine, {
+        ...standardConfiguration,
+        globalFilter: ('globalFilter' in testCase ? testCase.globalFilter : undefined) ?? standardConfiguration.globalFilter
+      });
       if (testCase.discoveryError) expect(result.diagnostics).toMatchObject([{ code: testCase.discoveryError }]);
       else if (testCase.fieldText === undefined) expect(result).toEqual({ tasks: [], diagnostics: [] });
       else {
         expect(result.diagnostics).toEqual([]);
         expect(result.tasks).toMatchObject([{ fieldText: testCase.fieldText, ...(testCase.dates && { dates: testCase.dates }) }]);
         const task = result.tasks[0];
+        if (testCase.text !== undefined) expect(task.text).toBe(testCase.text);
+        if (testCase.priority === null) expect(task).not.toHaveProperty('priority');
+        else if (testCase.priority !== undefined) expect(task.priority).toBe(testCase.priority);
         const parsed = parse(task.fieldText);
         expect(parsed.ok).toBe(true);
         if (!parsed.ok) return;
@@ -288,6 +295,19 @@ const fieldExtractionAndInvalidSyntaxCases: MatrixCase[] = [
 ];
 describe('Field Extraction and Invalid Syntax', () => testMatrixCases(fieldExtractionAndInvalidSyntaxCases));
 
+const textAndPriorityCases: MatrixCase[] = [
+  { id: 'T01', taskLine: '1. [ ] #TASK Submit **plan** #work 🔔9am🔺📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete', globalFilter: '#task', text: 'Submit **plan** #work', priority: 'highest', fieldText: '9am', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'T02', taskLine: '1. [ ] #TASK Submit **plan** #work 🔔9am⏫📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete', globalFilter: '#task', text: 'Submit **plan** #work', priority: 'high', fieldText: '9am', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'T03', taskLine: '1. [ ] #TASK Submit **plan** #work 🔔9am🔼📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete', globalFilter: '#task', text: 'Submit **plan** #work', priority: 'medium', fieldText: '9am', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'T04', taskLine: '1. [ ] #TASK Submit **plan** #work 🔔9am🔽📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete', globalFilter: '#task', text: 'Submit **plan** #work', priority: 'low', fieldText: '9am', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'T05', taskLine: '1. [ ] #TASK Submit **plan** #work 🔔9am⏬📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete', globalFilter: '#task', text: 'Submit **plan** #work', priority: 'lowest', fieldText: '9am', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'T06', taskLine: '- [ ] #task Read `🔔` [[Notes]] 🔔 9am 📅 2027-04-15', globalFilter: '#task', text: 'Read `🔔` [[Notes]]', priority: null, fieldText: '9am', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'T07', taskLine: '- [ ] [TASK]+ 🔔 📅 2027-04-15', globalFilter: '[task]+', text: '', priority: null, fieldText: '', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'T08', taskLine: '- [ ] Submit **plan** 🔔 9am ⏫ 📅 2027-04-15', text: 'Submit **plan**', priority: 'high', fieldText: '9am', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'T09', taskLine: '- [ ] Review 🔔 9am 📅 2027-04-15', text: 'Review', priority: null, fieldText: '9am', oneShots: ['2027-04-15 09:00:00'] }
+];
+describe('Text and Priority', () => testMatrixCases(textAndPriorityCases));
+
 const dstBehaviorCases: MatrixCase[] = [
   { id: 'D01', field: '2:30am', dates: { due: '2027-03-14' }, oneShots: ['2027-03-14 03:00:00'] },
   { id: 'D02', field: '1:30am', dates: { due: '2027-11-07' }, oneShots: ['2027-11-07 01:30:00'], exactOneShots: ['2027-11-07T08:30:00Z'] },
@@ -300,7 +320,7 @@ describe('DST Behavior', () => testMatrixCases(dstBehaviorCases));
 
 const matrixSections = [optInAndBasicTimesCases, anchorSelectionCases, unitAndAliasEquivalenceCases,
   numericFormsAndRoundingCases, minimumRepeatIntervalCases, oneShotOffsetsCases,
-  repeatSeedsAndOrderingCases, fieldExtractionAndInvalidSyntaxCases, dstBehaviorCases];
+  repeatSeedsAndOrderingCases, fieldExtractionAndInvalidSyntaxCases, textAndPriorityCases, dstBehaviorCases];
 
 describe('matrix inventory guard', () => {
   it('has exactly one executable case for every matrix ID in matrix order', () => {

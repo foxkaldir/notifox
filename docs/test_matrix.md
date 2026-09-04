@@ -22,6 +22,7 @@ Unless overridden:
 |---|---|
 |Timezone|`America/Los_Angeles`|
 |Default alert time|`09:00:00`|
+|Global Filter|Empty|
 |Due date|`2027-04-15`|
 |Scheduled date|`2027-04-10`|
 |Start date|`2027-04-01`|
@@ -304,6 +305,20 @@ A repeat interval with no `after` clause implicitly uses `last` as its repeat se
 |UNEXPECTED_TOKEN|Unrecognized text remains after parsing a clause, invalidating the entire reminder field.|
 |MULTIPLE_ANCHORS|A clause specifies more than one date anchor.|
 
+## Text and Priority
+
+|ID|Input|Global Filter Override|Expected text|Expected priority|Expected occurrence|
+|---|---|---|---|---|---|
+|T01|`1. [ ] #TASK Submit **plan** #work 🔔9am🔺📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete`|`#task`|`Submit **plan** #work`|`highest`|`2027-04-15 09:00:00`|
+|T02|`1. [ ] #TASK Submit **plan** #work 🔔9am⏫📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete`|`#task`|`Submit **plan** #work`|`high`|`2027-04-15 09:00:00`|
+|T03|`1. [ ] #TASK Submit **plan** #work 🔔9am🔼📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete`|`#task`|`Submit **plan** #work`|`medium`|`2027-04-15 09:00:00`|
+|T04|`1. [ ] #TASK Submit **plan** #work 🔔9am🔽📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete`|`#task`|`Submit **plan** #work`|`low`|`2027-04-15 09:00:00`|
+|T05|`1. [ ] #TASK Submit **plan** #work 🔔9am⏬📅2027-04-15 🔁 every day 🆔 abc ⛔ def 🏁 delete`|`#task`|`Submit **plan** #work`|`lowest`|`2027-04-15 09:00:00`|
+|T06|``- [ ] #task Read `🔔` [[Notes]] 🔔 9am 📅 2027-04-15``|`#task`|``Read `🔔` [[Notes]]``|Omitted|`2027-04-15 09:00:00`|
+|T07|`- [ ] [TASK]+ 🔔 📅 2027-04-15`|`[task]+`|Empty string|Omitted|`2027-04-15 09:00:00`|
+|T08|`- [ ] Submit **plan** 🔔 9am ⏫ 📅 2027-04-15`|Empty (standard)|`Submit **plan**`|`high`|`2027-04-15 09:00:00`|
+|T09|`- [ ] Review 🔔 9am 📅 2027-04-15`|Empty (standard)|`Review`|Omitted|`2027-04-15 09:00:00`|
+
 ## DST Behavior
 Project policy: nonexistent local times advance to the first valid local time; ambiguous times use the earlier occurrence. Timezone ambiguity is described in [MDN’s ZonedDateTime documentation](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Temporal/ZonedDateTime).
 
@@ -330,6 +345,7 @@ expected diagnostic code
 expected normalized clauses
 expected seed
 expected absolute occurrence timestamps
+configured Global Filter and expected text/priority for description cases
 ```
 
 Do not add lifecycle, identity, synchronization, persistence, delivery, retry, or protocol assertions to this matrix.
