@@ -14,6 +14,7 @@ examples below use the timezone and default alert time from
 |Timezone|IANA timezone used to interpret task dates and local reminder times. Initially uses your device's timezone, or UTC if unavailable.|`America/Los_Angeles`|
 |Default alert time|Time used by an empty `🔔`, offsets without `at`, and the implicit one-shot in a repeat-only field. Defaults to `09:00:00`.|`09:00:00`|
 |ntfy.sh server|Base URL of the ntfy server included in the reminder export. Defaults to `https://ntfy.sh`.|`https://ntfy.sh`|
+|notifox server|URL that receives the complete `reminders.json` via POST after each changed export. Blank disables POSTs (default).|`https://example.com/reminders`|
 
 ## Usage
 
@@ -71,6 +72,7 @@ reconciliation.
 |[design_plan.md](docs/design_plan.md)|Plugin and service architecture, implementation behavior, synchronization, and reminder delivery.|
 |[grammar.md](docs/grammar.md)|Reminder grammar, supported units, and parsing rules.|
 |[project_structure.md](docs/project_structure.md)|TypeScript source files, their responsibilities, and the reminder export flow.|
+|[reminders_json.md](docs/reminders_json.md)|Consumer contract for reminders.json fields, schedules, snapshot replacement, and delivery.|
 |[test_matrix.md](docs/test_matrix.md)|Source of truth for reminder syntax, expected timestamps, and syntax-error acceptance criteria.|
 
 ## Development builds

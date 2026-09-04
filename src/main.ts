@@ -65,7 +65,8 @@ export default class NotifoxRemindersPlugin extends Plugin {
       vaultId: saved?.vaultId || newVaultId(),
       timeZone: saved?.timeZone || DEFAULT_SETTINGS.timeZone,
       defaultAlertTime: saved?.defaultAlertTime || DEFAULT_SETTINGS.defaultAlertTime,
-      ntfyServer: saved?.ntfyServer || DEFAULT_SETTINGS.ntfyServer
+      ntfyServer: saved?.ntfyServer || DEFAULT_SETTINGS.ntfyServer,
+      notifoxServer: saved?.notifoxServer ?? DEFAULT_SETTINGS.notifoxServer
     };
   }
 

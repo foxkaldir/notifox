@@ -13,6 +13,7 @@ function pluginData(files: Record<string, FileScanEntry>, outputRetryNeeded = tr
     timeZone: 'America/Los_Angeles',
     defaultAlertTime: '09:00',
     ntfyServer: 'https://ntfy.sh',
+    notifoxServer: 'https://example.com/reminders',
     scanIndex: { version: 3, files, outputRetryNeeded }
   };
 }
@@ -80,6 +81,7 @@ describe('plugin data persistence', () => {
         timeZone: 'America/Los_Angeles',
         defaultAlertTime: '09:00',
         ntfyServer: 'https://ntfy.sh',
+        notifoxServer: 'https://example.com/reminders',
         scanIndex: { version: 3, files: {}, outputRetryNeeded: false }
       });
     }

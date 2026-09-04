@@ -100,7 +100,7 @@ The runtime scan cache and compact storage codec for internal plugin state.
 The user-facing settings model and Obsidian settings tab.
 
 - Defines the persisted Notifox settings and their defaults.
-- Renders controls for timezone, default alert time, and ntfy server URL.
+- Renders controls for timezone, default alert time, ntfy server URL, and notifox server URL.
 - Sends edits back to the plugin so they can be saved and trigger reconciliation.
 
 ### `src/time-zones.ts`

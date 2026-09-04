@@ -7,12 +7,14 @@ export interface NotifoxSettings {
   timeZone: string;
   defaultAlertTime: string;
   ntfyServer: string;
+  notifoxServer: string;
 }
 
 export const DEFAULT_SETTINGS: Omit<NotifoxSettings, 'vaultId'> = {
   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
   defaultAlertTime: '09:00:00',
-  ntfyServer: 'https://ntfy.sh'
+  ntfyServer: 'https://ntfy.sh',
+  notifoxServer: ''
 };
 
 export class NotifoxSettingTab extends PluginSettingTab {
@@ -40,6 +42,13 @@ export class NotifoxSettingTab extends PluginSettingTab {
       .setDesc('Used by an empty reminder field and offsets without “at”.')
       .addText((text) => text.setPlaceholder('09:00:00').setValue(this.plugin.settings.defaultAlertTime).onChange(async (value) => {
         await this.plugin.updateSettings({ defaultAlertTime: value.trim() });
+      }));
+
+    new Setting(containerEl)
+      .setName('notifox server')
+      .setDesc('URL that receives the complete reminders.json via POST whenever the file is updated. Leave blank to disable.')
+      .addText((text) => text.setPlaceholder('https://example.com/reminders').setValue(this.plugin.settings.notifoxServer).onChange(async (value) => {
+        await this.plugin.updateSettings({ notifoxServer: value.trim() });
       }));
 
     new Setting(containerEl)

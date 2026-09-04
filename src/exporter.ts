@@ -1,5 +1,5 @@
 import { Temporal } from '@js-temporal/polyfill';
-import { Notice, TFile, TFolder, normalizePath, type App, type TAbstractFile } from 'obsidian';
+import { Notice, TFile, TFolder, normalizePath, requestUrl, type App, type TAbstractFile } from 'obsidian';
 import { parse } from './parser';
 import { parseDefaultAlertTime, resolveReminder } from './resolver';
 import {
@@ -494,12 +494,25 @@ export class IncrementalReminderExporter {
       await this.app.vault.adapter.write(this.outputPath, output);
       this.lastOutputBytes = output;
       this.index.outputRetryNeeded = false;
+      await this.postOutput(output);
       await this.persistData();
       return true;
     } catch (error) {
       this.index.outputRetryNeeded = true;
       await this.persistData();
       throw error;
+    }
+  }
+
+  // Posts saved JSON to the configured endpoint without failing local exports.
+  private async postOutput(output: string): Promise<void> {
+    const url = this.getSettings().notifoxServer.trim();
+    if (!url) return;
+    try {
+      if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error('Use an HTTP or HTTPS URL.');
+      await requestUrl({ url, method: 'POST', contentType: 'application/json', body: output });
+    } catch {
+      new Notice('Notifox Reminders: Could not POST reminders.json to the notifox server. Check the URL and server availability.');
     }
   }
 

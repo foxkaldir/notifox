@@ -169,6 +169,7 @@ interface EncodedPluginData {
   timeZone: string;
   defaultAlertTime: string;
   ntfyServer: string;
+  notifoxServer: string;
   scanIndex: CompactScanIndex;
 }
 
@@ -277,6 +278,7 @@ function encodePluginData(data: PluginData): EncodedPluginData {
     timeZone: data.timeZone,
     defaultAlertTime: data.defaultAlertTime,
     ntfyServer: data.ntfyServer,
+    notifoxServer: data.notifoxServer,
     scanIndex: encodeScanIndex(data.scanIndex ?? emptyScanIndex())
   };
 }
@@ -292,6 +294,7 @@ export function decodePluginData(value: unknown): Partial<NotifoxSettings> & { s
   if (typeof candidate.timeZone === 'string') decoded.timeZone = candidate.timeZone;
   if (typeof candidate.defaultAlertTime === 'string') decoded.defaultAlertTime = candidate.defaultAlertTime;
   if (typeof candidate.ntfyServer === 'string') decoded.ntfyServer = candidate.ntfyServer;
+  if (typeof candidate.notifoxServer === 'string') decoded.notifoxServer = candidate.notifoxServer;
   return decoded;
 }
 
