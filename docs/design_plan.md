@@ -86,7 +86,7 @@ subscriber devices and Web Push
 - A code-span bell is literal text and does not enroll the task.
 - More than one standalone bell produces `MULTIPLE_REMINDER_FIELDS`.
 - `🔔` with no clause is valid and creates one default-time reminder.
-- `🔔5pm` is invalid with `MISSING_FIELD_SPACE`; a nonempty field requires whitespace after the bell.
+- Zero or more whitespace characters may follow the bell and Tasks metadata emoji; `🔔5pm`, `🔔📅2027-04-15`, and `🔔⏬📅 2027-04-15` are valid. Spaces, tabs, and Unicode whitespace within a task line are accepted.
 - Removing the bell removes reminder state and all pending occurrences.
 
 ### Tasks integration
@@ -103,7 +103,7 @@ The plugin uses the Tasks plugin's recognized task data rather than independentl
 
 The server remains authoritative for the reminder field. Tasks semantic context is authoritative for whether a line is a task, its configured status type, and its date metadata.
 
-The reminder field must appear at the start of the Tasks emoji group, after the description and before every Tasks metadata field. The exporter reads reminder content from after `🔔` through the first Tasks metadata field, or through the end of the task line when no metadata follows. A bell between or after Tasks metadata produces `INVALID_FIELD_POSITION`, preventing the reminder text from breaking Tasks' [field-order behavior](https://publish.obsidian.md/tasks/Editing/Auto-Suggest).
+The reminder field must appear at the start of the Tasks emoji group, after the description and before every Tasks metadata field. The exporter reads reminder content from after `🔔` through the first Tasks metadata field, or through the end of the task line when no metadata follows. Metadata boundaries do not require whitespace and include all priority markers (`🔺`, `⏫`, `🔼`, `🔽`, `⏬`). Adjacent bells are still counted as multiple fields. A bell between or after Tasks metadata produces `INVALID_FIELD_POSITION`, preventing the reminder text from breaking Tasks' [field-order behavior](https://publish.obsidian.md/tasks/Editing/Auto-Suggest).
 
 ## 7. Canonical Reminder Grammar
 

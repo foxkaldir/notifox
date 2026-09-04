@@ -25,6 +25,7 @@ it if no filter is configured. Examples use `America/Los_Angeles` and `09:00:00`
 |Rule|Behavior|
 |---|---|
 |Date selection|Uses due (`📅`), then scheduled (`⏳`), then start (`🛫`); an explicitly named anchor must exist.|
+|Emoji spacing|Zero or more whitespace characters may follow emoji: `🔔📅2027-04-15`, `🔔⏬📅 2027-04-15`, and `🔔5pm 📅2027-04-15` are valid.|
 |Multiple alerts|Separate clauses with commas; matching timestamps are deduplicated.|
 |Intervals|Seconds, minutes, hours, days, and weeks support abbreviations and fractions; months and years are unsupported.|
 |Repeats|One repeat clause, placed last; minimum interval is one minute after rounding to whole seconds.|

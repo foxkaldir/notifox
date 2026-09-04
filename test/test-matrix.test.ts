@@ -7,7 +7,7 @@ import { resolutionDiagnostic, resolveReminder } from '../src/resolver';
 import { discoverTasks } from '../src/integrations/obsidian-tasks-plugin';
 import type { DiscoveredTask, ResolverSettings, StatusType, TaskDates } from '../src/types';
 
-const settings: ResolverSettings = { timeZone: 'America/Los_Angeles', defaultAlertTime: { hour: 9, minute: 0, second: 0 }, now: Temporal.Instant.from('2027-01-01T00:00:00Z') };
+const settings: ResolverSettings = { timeZone: 'America/Los_Angeles', defaultAlertTime: { hour: 9, minute: 0, second: 0 }, now: Temporal.Instant.from('2026-01-01T00:00:00Z') };
 const standardDates: TaskDates = { due: '2027-04-15', scheduled: '2027-04-10', start: '2027-04-01' };
 const configuration = { globalFilter: '', statusTypes: new Map<string, StatusType>([[' ', 'TODO'], ['x', 'DONE']]) };
 
@@ -236,7 +236,7 @@ const fieldExtractionAndInvalidSyntaxCases: MatrixCase[] = [
   { id: 'E03', taskLine: '- [ ] Document the `🔔 5pm` marker 📅 2027-04-15' },
   { id: 'E04', taskLine: '- [ ] `🔔` example 🔔 5pm 📅 2027-04-15', fieldText: '5pm', oneShots: ['2027-04-15 17:00:00'] },
   { id: 'E05', taskLine: '- [ ] Submit 🔔 5pm 🔔 6pm', discoveryError: 'MULTIPLE_REMINDER_FIELDS' },
-  { id: 'E06', taskLine: '- [ ] Submit 🔔5pm', discoveryError: 'MISSING_FIELD_SPACE' },
+  { id: 'E06', taskLine: '- [ ] Submit 🔔5pm 📅2027-04-15', fieldText: '5pm', oneShots: ['2027-04-15 17:00:00'] },
   { id: 'E07', field: ', 5pm', parseError: 'EMPTY_CLAUSE' },
   { id: 'E08', field: '5pm,', parseError: 'EMPTY_CLAUSE' },
   { id: 'E09', field: '5pm,, 6pm', parseError: 'EMPTY_CLAUSE' },
@@ -275,7 +275,16 @@ const fieldExtractionAndInvalidSyntaxCases: MatrixCase[] = [
   { id: 'E42', field: '1y after', parseError: 'UNKNOWN_UNIT' },
   { id: 'E43', taskLine: '- [ ] Submit 🔼 🔔 5pm 📅 2027-04-15', discoveryError: 'INVALID_FIELD_POSITION' },
   { id: 'E44', taskLine: '- [ ] Submit 🔼 📅 2027-04-15 🔔', discoveryError: 'INVALID_FIELD_POSITION' },
-  { id: 'E45', field: 'every 30m after', parseError: 'INVALID_REPEAT_DIRECTION' }
+  { id: 'E45', field: 'every 30m after', parseError: 'INVALID_REPEAT_DIRECTION' },
+  { id: 'E46', taskLine: '- [ ] Get rid of cube storage 🔔📅 2026-09-05 ', fieldText: '', dates: { due: '2026-09-05' }, oneShots: ['2026-09-05 09:00:00'] },
+  { id: 'E47', taskLine: '- [ ] Setup some playlists 🔔⏬📅 2026-09-06 ', fieldText: '', dates: { due: '2026-09-06' }, oneShots: ['2026-09-06 09:00:00'] },
+  { id: 'E48', taskLine: '- [ ] Submit 🔔5pm🔺📅2027-04-15', fieldText: '5pm', oneShots: ['2027-04-15 17:00:00'] },
+  { id: 'E49', taskLine: '- [ ] Submit 🔔   ⏬   📅   2027-04-15', fieldText: '', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'E50', taskLine: '- [ ] Submit 🔔\t5pm⏬\t📅\t2027-04-15', fieldText: '5pm', oneShots: ['2027-04-15 17:00:00'] },
+  { id: 'E51', taskLine: '- [ ] Submit 🔔\u00a0⏬\u00a0📅\u00a02027-04-15', fieldText: '', oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'E52', taskLine: '- [ ] Submit 🔔🛫2027-04-01⏳2027-04-10📅2027-04-15', fieldText: '', dates: standardDates, oneShots: ['2027-04-15 09:00:00'] },
+  { id: 'E53', taskLine: '- [ ] Submit ⏬🔔📅2027-04-15', discoveryError: 'INVALID_FIELD_POSITION' },
+  { id: 'E54', taskLine: '- [ ] Submit 🔔🔔📅2027-04-15', discoveryError: 'MULTIPLE_REMINDER_FIELDS' }
 ];
 describe('Field Extraction and Invalid Syntax', () => testMatrixCases(fieldExtractionAndInvalidSyntaxCases));
 

@@ -13,6 +13,8 @@ A real standalone `🔔` field is required for reminder syntax to be present.
 
 The reminder field must appear at the start of the Tasks emoji group: after the task description and before every Tasks metadata field. Its content begins after `🔔` and ends at the first Tasks metadata field or the end of the task line.
 
+Zero or more whitespace characters are allowed after the bell and Tasks metadata emoji, including spaces, tabs, and Unicode whitespace within a task line. Emoji may touch each other or their field values. Priority metadata includes `🔺`, `⏫`, `🔼`, `🔽`, and `⏬`. The bell must still start a field outside inline code, and metadata before the bell remains invalid. In the examples below, `\t` denotes a tab and `\u00a0` denotes a non-breaking space.
+
 ## Standard Fixture
 Unless overridden:
 
@@ -231,7 +233,7 @@ A repeat interval with no `after` clause implicitly uses `last` as its repeat se
 |E03|``- [ ] Document the `🔔 5pm` marker 📅 2027-04-15``|No reminder field detected; the code bell is ignored.|
 |E04|``- [ ] `🔔` example 🔔 5pm 📅 2027-04-15``|`2027-04-15 17:00:00`; the code bell is ignored.|
 |E05|`🔔 5pm 🔔 6pm`|Invalid: `MULTIPLE_REMINDER_FIELDS`.|
-|E06|`🔔5pm`|Invalid: `MISSING_FIELD_SPACE`.|
+|E06|`🔔5pm`|`2027-04-15 17:00:00`.|
 |E07|`🔔 , 5pm`|Invalid: `EMPTY_CLAUSE`.|
 |E08|`🔔 5pm,`|Invalid: `EMPTY_CLAUSE`.|
 |E09|`🔔 5pm,, 6pm`|Invalid: `EMPTY_CLAUSE`.|
@@ -271,6 +273,15 @@ A repeat interval with no `after` clause implicitly uses `last` as its repeat se
 |E43|`- [ ] Submit 🔼 🔔 5pm 📅 2027-04-15`|Invalid: `INVALID_FIELD_POSITION`; the reminder appears between Tasks metadata fields.|
 |E44|`- [ ] Submit 🔼 📅 2027-04-15 🔔`|Invalid: `INVALID_FIELD_POSITION`; an empty reminder follows Tasks metadata.|
 |E45|`🔔 every 30m after`|Invalid: `INVALID_REPEAT_DIRECTION`.|
+|E46|`- [ ] Get rid of cube storage 🔔📅 2026-09-05 `|`2026-09-05 09:00:00`.|
+|E47|`- [ ] Setup some playlists 🔔⏬📅 2026-09-06 `|`2026-09-06 09:00:00`.|
+|E48|`- [ ] Submit 🔔5pm🔺📅2027-04-15`|`2027-04-15 17:00:00`.|
+|E49|`- [ ] Submit 🔔   ⏬   📅   2027-04-15`|`2027-04-15 09:00:00`.|
+|E50|`- [ ] Submit 🔔\t5pm⏬\t📅\t2027-04-15`|`2027-04-15 17:00:00`.|
+|E51|`- [ ] Submit 🔔\u00a0⏬\u00a0📅\u00a02027-04-15`|`2027-04-15 09:00:00`.|
+|E52|`- [ ] Submit 🔔🛫2027-04-01⏳2027-04-10📅2027-04-15`|`2027-04-15 09:00:00`.|
+|E53|`- [ ] Submit ⏬🔔📅2027-04-15`|Invalid: `INVALID_FIELD_POSITION`.|
+|E54|`- [ ] Submit 🔔🔔📅2027-04-15`|Invalid: `MULTIPLE_REMINDER_FIELDS`.|
 
 ### Field Extraction and Invalid Syntax: Errors
 
@@ -278,7 +289,6 @@ A repeat interval with no `after` clause implicitly uses `last` as its repeat se
 |---|---|
 |INVALID_FIELD_POSITION|The reminder field is not at the start of the Tasks emoji group, before all Tasks metadata.|
 |MULTIPLE_REMINDER_FIELDS|The task contains more than one standalone reminder field.|
-|MISSING_FIELD_SPACE|A nonempty reminder field is not separated from `🔔` by whitespace.|
 |EMPTY_CLAUSE|A leading, trailing, or repeated comma creates an empty reminder clause.|
 |MISSING_TIME|A clause requires a time after `at`, but none was provided.|
 |INVALID_TIME|The time is malformed or contains an hour, minute, second, or meridiem outside its range.|

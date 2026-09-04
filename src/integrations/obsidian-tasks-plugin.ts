@@ -2,7 +2,8 @@ import type { App } from 'obsidian';
 import type { Diagnostic, DiscoveredTask, StatusType } from '../types';
 
 const TASKS_PLUGIN_ID = 'obsidian-tasks-plugin';
-const TASK_METADATA = /(?:📅|⏳|🛫|➕|✅|❌|🔁|⏫|🔼|🔽|🆔|⛔|🏁)\s*/g;
+const TASK_METADATA_EMOJI = ['📅', '⏳', '🛫', '➕', '✅', '❌', '🔁', '🔺', '⏫', '🔼', '🔽', '⏬', '🆔', '⛔', '🏁'];
+const TASK_METADATA = new RegExp(TASK_METADATA_EMOJI.join('|'), 'g');
 const ACTIVE_TYPES = new Set<StatusType>(['TODO', 'IN_PROGRESS', 'ON_HOLD']);
 
 export interface TasksConfiguration {
@@ -80,12 +81,14 @@ export async function readTasksConfiguration(app: App): Promise<TasksConfigurati
   return { ok: true, configuration: { globalFilter: globalFilter ?? '', statusTypes: customStatusTypes(settings) } };
 }
 
+// Finds field bells outside inline code, including adjacent task emoji.
 function nonCodeBellPositions(text: string): number[] {
   const positions: number[] = [];
   let code = false;
   for (let index = 0; index < text.length; index += 1) {
     if (text[index] === '`') code = !code;
-    if (!code && text.startsWith('🔔', index) && (index === 0 || /\s/.test(text[index - 1]))) {
+    if (!code && text.startsWith('🔔', index) && (index === 0 || /\s/.test(text[index - 1])
+      || ['🔔', ...TASK_METADATA_EMOJI].some((emoji) => text.slice(0, index).endsWith(emoji)))) {
       positions.push(index);
       index += '🔔'.length - 1;
     }
@@ -133,11 +136,6 @@ export function discoverTasks(
       continue;
     }
     const bell = bells[0];
-    const following = body.slice(bell + '🔔'.length);
-    if (following && !/^\s/.test(following)) {
-      diagnostics.push({ code: 'MISSING_FIELD_SPACE', message: `${path}:${offset + 1} has no space after the reminder bell.` });
-      continue;
-    }
     const metadata = metadataStart(body);
     if (metadata !== undefined && bell > metadata) {
       diagnostics.push({ code: 'INVALID_FIELD_POSITION', message: `${path}:${offset + 1} has the reminder after Tasks metadata.` });
