@@ -30,7 +30,7 @@ type DiscoveryCase = ValidDiscoveryCase | SkippedDiscoveryCase;
 type MatrixCase = ResolvesCase | ParseErrorCase | ResolutionErrorCase | DiscoveryCase;
 
 /*
- * Keep this file in the same section and row order as ../../text_matrix.md. Every
+ * Keep this file in the same section and row order as ../docs/test_matrix.md. Every
  * matrix row gets exactly one case in its matching section array, immediately
  * followed by a describe block that runs the whole array through testMatrixCases.
  * Use `field` for reminder-field content and `taskLine` for extraction cases.
@@ -295,7 +295,7 @@ const matrixSections = [optInAndBasicTimesCases, anchorSelectionCases, unitAndAl
 
 describe('matrix inventory guard', () => {
   it('has exactly one executable case for every matrix ID in matrix order', () => {
-    const matrixPath = fileURLToPath(new URL('../../text_matrix.md', import.meta.url));
+    const matrixPath = fileURLToPath(new URL('../docs/test_matrix.md', import.meta.url));
     const expected = [...readFileSync(matrixPath, 'utf8').matchAll(/^\|([A-Z]\d{2})\|/gm)].map((match) => match[1]);
     const covered = matrixSections.flatMap((section) => section.map(({ id }) => id));
     expect(new Set(covered).size).toBe(covered.length);

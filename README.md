@@ -3,32 +3,76 @@
 An Obsidian community plugin that exports valid `🔔` reminder fields from active
 Tasks Emoji-format tasks.
 
+## Settings
+
+Open **Settings → Notifox Reminders** to configure these options. The reminder
+examples below use the timezone and default alert time from
+[`docs/test_matrix.md`](docs/test_matrix.md), the reminder syntax reference.
+
+|Setting|What it does|Example setting|
+|---|---|---|
+|Timezone|IANA timezone used to interpret task dates and local reminder times. Initially uses your device's timezone, or UTC if unavailable.|`America/Los_Angeles`|
+|Default alert time|Time used by an empty `🔔`, offsets without `at`, and the implicit one-shot in a repeat-only field. Defaults to `09:00:00`.|`09:00:00`|
+|ntfy.sh server|Base URL of the ntfy server included in the reminder export. Defaults to `https://ntfy.sh`.|`https://ntfy.sh`|
+
+## Usage
+
+Write an incomplete [Markdown task](https://help.obsidian.md/syntax#Task%20lists)
+with a description, `🔔`, and at least one Tasks date. Keep the reminder before
+all Tasks metadata. Replace `#task` with your Tasks Global Filter marker, or omit
+it if no filter is configured. Examples use `America/Los_Angeles` and `09:00:00`.
+
+|Rule|Behavior|
+|---|---|
+|Date selection|Uses due (`📅`), then scheduled (`⏳`), then start (`🛫`); an explicitly named anchor must exist.|
+|Multiple alerts|Separate clauses with commas; matching timestamps are deduplicated.|
+|Intervals|Seconds, minutes, hours, days, and weeks support abbreviations and fractions; months and years are unsupported.|
+|Repeats|One repeat clause, placed last; minimum interval is one minute after rounding to whole seconds.|
+|Repeat seeds|`last` (also the default) uses the latest one-shot timestamp; `prev`/`previous` uses the preceding written one-shot.|
+|Task recurrence|Tasks' `🔁` recurrence is separate from repeating reminder alerts.|
+
+|Feature|Full task line|Reminders (local time)|
+|---|---|---|
+|Default time|`- [ ] #task Pay the design invoice in [[April budget]] #finance 🔔 ⏫ ➕ 2027-04-01 📅 2027-04-15`|`2027-04-15 09:00:00`|
+|Multiple times|`- [ ] #task Review [[Launch checklist]] with the team #work 🔔 9am, 5pm 🔼 🛫 2027-04-01 ⏳ 2027-04-10 📅 2027-04-15`|`2027-04-15 09:00:00`; `2027-04-15 17:00:00`|
+|Scheduled fallback; seconds|`- [ ] #task Join the rehearsal using [[Demo meeting link]] #work 🔔 14:00:30 🔼 🛫 2027-04-01 ⏳ 2027-04-10`|`2027-04-10 14:00:30`|
+|Start fallback; fractional offset|`- [ ] #task Prepare the workshop materials in [[Workshop plan]] #teaching 🔔 1.5hr before 🔼 🛫 2027-04-01`|`2027-04-01 07:30:00`|
+|Advance notice at a chosen time|`- [ ] #task Check the signed forms in [[Application checklist]] #admin 🔔 1 day before at 2pm ⏫ ⏳ 2027-04-10 📅 2027-04-15`|`2027-04-14 14:00:00`|
+|All three anchors|`- [ ] #task Prepare and submit [[Conference proposal]] #writing 🔔 1d before due, .5h after scheduled, 5pm on start ⏫ ➕ 2027-03-25 🛫 2027-04-01 ⏳ 2027-04-10 📅 2027-04-15`|`2027-04-01 17:00:00`; `2027-04-10 09:30:00`; `2027-04-14 09:00:00`|
+|Week offset; recurring task|`- [ ] #task Submit the weekly report from [[Team metrics]] #work 🔔 9am, 1 week before at 9am 🔼 🔁 every week 📅 2027-04-15`|`2027-04-08 09:00:00`; `2027-04-15 09:00:00`|
+|Repeat-only shorthand|`- [ ] #task Check whether [[Release deployment]] has finished #ops 🔔 every 30m ⏫ 📅 2027-04-15`|`2027-04-15 09:00:00`; `2027-04-15 09:30:00`; then every 30 minutes.|
+|Repeat after previous clause|`- [ ] #task Follow up on [[Vendor approval]] #work 🔔 5pm, 9am, every hour after prev 🔼 📅 2027-04-15`|`2027-04-15 09:00:00`; `2027-04-15 10:00:00`; then hourly, including one alert at `2027-04-15 17:00:00`. With `last`, repeats would begin at `2027-04-15 18:00:00`.|
+|Explicit repeat boundary|`- [ ] #task Confirm the delivery slot in [[Office move]] #logistics 🔔 5pm, every 30m after 3pm ⏫ 📅 2027-04-15`|`2027-04-15 15:30:00`; `2027-04-15 16:00:00`; then every 30 minutes. No alert at `2027-04-15 15:00:00`; one at `2027-04-15 17:00:00`.|
+
+## Dependencies
+
 The plugin requires Tasks 8.x and honors its Global Filter marker. It writes a
 complete nested JSON object to `plugins/notifox-reminders/reminders.json` under the
 vault configuration directory. Configure the vault timezone, default alert
 time, and ntfy server in the plugin settings. The ntfy server defaults to
-`https://ntfy.sh`. The exporter keeps a versioned per-file scan index
-in its plugin data, coalesces live file events, and updates only affected notes.
-It reconciles metadata when the plugin starts and when Obsidian returns from the
-background. Matching path, modification time, and size are trusted during those
-reconciliations.
+`https://ntfy.sh`.
 
-Use **Regenerate reminder JSON** to read and hash every Markdown file when a
-same-size edit with a preserved modification time may have escaped metadata
-reconciliation. The command still avoids parsing unchanged content. The complete
-output remains deterministically sorted, and the plugin does not rewrite
-`reminders.json` when its canonical bytes are already current.
+## Issues
 
-Timestamps are UTC RFC 3339 values. Repeating intervals are rounded integer
-seconds; day and week durations are therefore 86,400 and 604,800 seconds.
-The output includes the ntfy server as the top-level `ntfy-server` property. It
-uses the vault name as another top-level key and groups reminder arrays under
-vault-relative file-path keys. URI-encode those keys to form
-`obsidian://open?vault=<vault>&file=<file>`.
-Each reminder stores only its one-based `line` number because the enclosing
-vault and file keys supply the rest of its location.
+The plugin best effort scans files in the vault for reminders, but may miss some
+in rare cases. Use **Regenerate reminder JSON** to read and hash every Markdown
+file when a same-size edit with a preserved modification time may have escaped metadata
+reconciliation.
 
-## Local development
+---
+
+# Development
+
+## Table of contents
+
+|File|Description|
+|---|---|
+|[design_plan.md](docs/design_plan.md)|Plugin and service architecture, implementation behavior, synchronization, and reminder delivery.|
+|[grammar.md](docs/grammar.md)|Reminder grammar, supported units, and parsing rules.|
+|[project_structure.md](docs/project_structure.md)|TypeScript source files, their responsibilities, and the reminder export flow.|
+|[test_matrix.md](docs/test_matrix.md)|Source of truth for reminder syntax, expected timestamps, and syntax-error acceptance criteria.|
+
+## Development builds
 
 Use a separate test vault; plugin bugs can modify vault data.
 
@@ -50,39 +94,51 @@ npm run lint
 npm run build
 ```
 
-## Public production build
+## Production builds
 
-Publish the contents of this directory as the root of a public GitHub
-repository; Obsidian expects `README.md`, `LICENSE`, and `manifest.json` there.
+1. **Set the version.** Update npm's version files, then set the same version in
+   `manifest.json`. If `minAppVersion` changes, add the new version and its
+   minimum supported Obsidian version to `versions.json`.
 
-1. Choose an `x.y.z` version. Run
-   `npm version x.y.z --no-git-tag-version`, set the same version in
-   `manifest.json`, and add `"x.y.z": "1.8.7"` to `versions.json` when the
-   minimum supported Obsidian version changes.
-2. Run `npm ci`, `npm test`, `npm run lint`, and `npm run build`.
-3. Commit and push the source and updated version files.
-4. Create a public GitHub release whose tag is exactly `x.y.z`—without a `v`
-   prefix—and attach `main.js` and `manifest.json` as individual files.
+   ```sh
+   npm version x.y.z --no-git-tag-version
+   ```
 
-Users can now install the attached files manually. For easier public beta
-distribution before directory approval, use
+2. **Check and build.** Install locked dependencies, run tests and lint, and
+   produce the minified `main.js`. Continue only if every command succeeds.
+
+   ```sh
+   npm ci
+   npm test
+   npm run lint
+   npm run build
+   ```
+
+3. **Publish the source.** Stage the release's source and version changes
+   (including any new source files), review them, then commit and push to the
+   repository's default branch so its `manifest.json` matches the release.
+
+   ```sh
+   git diff --cached
+   git commit -m "Release x.y.z"
+   git push
+   ```
+
+4. **Publish the release.** Tag the release commit exactly `x.y.z` without a
+   `v` prefix, then upload both required files as individual assets.
+
+   ```sh
+   git tag x.y.z
+   git push origin x.y.z
+   gh release create x.y.z main.js manifest.json --verify-tag --title "x.y.z" --generate-notes
+   ```
+
+5. **Enable Community plugin updates (once).** Sign in to the
+   [Obsidian Community directory](https://community.obsidian.md), link the
+   GitHub account that owns the repository, and submit the plugin for review.
+   Follow the official [submission guide](https://docs.obsidian.md/plugins/releasing/submit-plugin).
+   After approval, repeat steps 1–4 for each update; Obsidian offers new releases
+   through its Community plugins updater without resubmission.
+
+Before approval, users can install the release assets manually or use
 [BRAT](https://docs.obsidian.md/Plugins/Releasing/Beta-testing+plugins).
-
-## Public production builds with automatic updates
-
-First complete the public production release above. Then sign in to the
-[Obsidian Community directory](https://community.obsidian.md), connect the
-GitHub account that owns the repository, and submit the plugin for review.
-
-After the initial version is approved, do not resubmit each update. For every
-new version:
-
-1. Update the version files and build using the production steps above.
-2. Publish a GitHub release with a matching `x.y.z` tag and the two required
-   assets: `main.js` and `manifest.json`.
-3. Keep the default branch's `manifest.json` on that same latest version.
-
-Obsidian will discover the release and offer it to installed users through its
-Community plugins updater. See the official
-[submission guide](https://docs.obsidian.md/plugins/releasing/submit-plugin)
-for current review and release requirements.

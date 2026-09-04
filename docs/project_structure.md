@@ -2,7 +2,7 @@
 
 This document describes the TypeScript source files in `src/` and the main responsibility of each one. Tests, build configuration, package metadata, and generated files are intentionally omitted.
 
-Reminder syntax and syntax-error acceptance criteria are defined in [`../text_matrix.md`](../text_matrix.md). Implementation behavior is documented in [`../design_plan.md`](../design_plan.md).
+Reminder syntax and syntax-error acceptance criteria are defined in [`../test_matrix.md`](../test_matrix.md). Implementation behavior is documented in [`../design_plan.md`](../design_plan.md).
 
 ## Processing flow
 

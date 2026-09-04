@@ -4,7 +4,7 @@
 
 Notifox adds server-backed reminders to tasks recognized by the Obsidian Tasks plugin. A standalone `🔔` field opts a task into reminders. The Obsidian plugin discovers and uploads enrolled task lines; the Rust service is authoritative for parsing, validation, schedule resolution, persistence, and ntfy delivery.
 
-The parser and reminder-expression resolver must satisfy every normative example in [`text_matrix.md`](./text_matrix.md). Row-level parse results, absolute occurrence timestamps, and named syntax-error identifiers are the syntax acceptance contract. Runtime behavior is specified in this design plan and covered by implementation-specific tests.
+The parser and reminder-expression resolver must satisfy every normative example in [`test_matrix.md`](./test_matrix.md). Row-level parse results, absolute occurrence timestamps, and named syntax-error identifiers are the syntax acceptance contract. Runtime behavior is specified in this design plan and covered by implementation-specific tests.
 
 ## 2. Goals
 
@@ -34,9 +34,9 @@ Month and year intervals are intentionally excluded because their duration depen
 
 For reminder syntax and syntax diagnostics, use the following precedence when specifications disagree:
 
-1. An explicitly approved correction in `text_matrix.md`.
-2. A row-level expected parse result in `text_matrix.md`.
-3. The section-level syntax rules in `text_matrix.md`.
+1. An explicitly approved correction in `test_matrix.md`.
+2. A row-level expected parse result in `test_matrix.md`.
+3. The section-level syntax rules in `test_matrix.md`.
 4. The grammar in `reminder_grammar.md`.
 5. Implementation details and library defaults.
 
@@ -188,7 +188,7 @@ The scheduler stores only the next repeat occurrence, its zero-based or one-base
 
 ## 11. Diagnostics
 
-Canonical reminder-syntax diagnostics use the error IDs and descriptions in `text_matrix.md`. Operational diagnostics are defined by the relevant implementation sections rather than the syntax matrix.
+Canonical reminder-syntax diagnostics use the error IDs and descriptions in `test_matrix.md`. Operational diagnostics are defined by the relevant implementation sections rather than the syntax matrix.
 
 ```json
 {
@@ -371,7 +371,7 @@ Obsidian exposes vault file access and mutation APIs for plugins; use vault APIs
 
 ### Conformance fixtures
 
-Convert each row in `text_matrix.md` into a machine-readable syntax-conformance fixture under `notifox-spec/fixtures`. Each fixture contains only syntax-facing inputs and expectations:
+Convert each row in `test_matrix.md` into a machine-readable syntax-conformance fixture under `notifox-spec/fixtures`. Each fixture contains only syntax-facing inputs and expectations:
 
 ```text
 id
@@ -437,7 +437,7 @@ The Rust parser and reminder-expression resolver must pass every applicable fixt
 
 ## 20. Completion Criteria
 
-- Every row in `text_matrix.md` is represented by an automated test and passes.
+- Every row in `test_matrix.md` is represented by an automated test and passes.
 - Fractional-second boundary cases pass through the general rounding and validation rules without literal-specific special cases.
 - Tasks without a standalone bell never create reminder state.
 - Invalid syntax returns the exact catalogued syntax error code; invalid reminder fields never partially schedule.
