@@ -22,6 +22,11 @@ export interface TasksConfigurationFailure {
   diagnostic: Diagnostic;
 }
 
+export interface DiscoveryDiagnostic extends Diagnostic {
+  line: number;
+  range: { start: number; end: number };
+}
+
 // Validates an explicitly assigned Tasks priority.
 export function isPriority(value: unknown): value is Priority {
   return typeof value === 'string' && ['highest', 'high', 'medium', 'low', 'lowest'].includes(value);
@@ -131,31 +136,45 @@ export function discoverTasks(
   path: string,
   content: string,
   configuration: TasksConfiguration
-): { tasks: DiscoveredTask[]; diagnostics: Diagnostic[] } {
+): { tasks: DiscoveredTask[]; diagnostics: DiscoveryDiagnostic[] } {
   const tasks: DiscoveredTask[] = [];
-  const diagnostics: Diagnostic[] = [];
+  const diagnostics: DiscoveryDiagnostic[] = [];
   const lines = content.split(/\r?\n/);
   for (let offset = 0; offset < lines.length; offset += 1) {
     const rawLine = lines[offset];
     const match = /^(?:\s*(?:[-*+]|\d+[.)])\s+\[([^\]])\]\s+)(.*)$/.exec(rawLine);
     if (!match) continue;
     const [, symbol, body] = match;
+    const bodyStart = rawLine.length - body.length;
     if (!matchesGlobalFilter(body, configuration.globalFilter)) continue;
     const statusType = configuration.statusTypes.get(symbol) ?? (symbol === ' ' ? 'TODO' : 'DONE');
     if (!ACTIVE_TYPES.has(statusType)) continue;
     const bells = nonCodeBellPositions(body);
     if (!bells.length) continue;
     if (bells.length > 1) {
-      diagnostics.push({ code: 'MULTIPLE_REMINDER_FIELDS', message: `${path}:${offset + 1} has multiple reminder fields.` });
+      diagnostics.push({
+        code: 'MULTIPLE_REMINDER_FIELDS',
+        message: 'The task contains more than one reminder field.',
+        line: offset + 1,
+        range: { start: bodyStart + bells[0], end: bodyStart + bells[bells.length - 1] + '🔔'.length }
+      });
       continue;
     }
     const bell = bells[0];
     const metadata = metadataStart(body);
     if (metadata !== undefined && bell > metadata) {
-      diagnostics.push({ code: 'INVALID_FIELD_POSITION', message: `${path}:${offset + 1} has the reminder after Tasks metadata.` });
+      diagnostics.push({
+        code: 'INVALID_FIELD_POSITION',
+        message: 'The reminder field must appear before all Tasks metadata.',
+        line: offset + 1,
+        range: { start: bodyStart + bell, end: bodyStart + bell + '🔔'.length }
+      });
       continue;
     }
     const fieldStart = bell + '🔔'.length;
+    const fieldEnd = metadata ?? body.length;
+    const rawField = body.slice(fieldStart, fieldEnd);
+    const leadingWhitespace = rawField.length - rawField.trimStart().length;
     const priorityEmoji = metadata === undefined ? undefined : /🔺|⏫|🔼|🔽|⏬/.exec(body.slice(metadata))?.[0];
     tasks.push({
       text: reminderText(body.slice(0, bell), configuration.globalFilter),
@@ -165,7 +184,12 @@ export function discoverTasks(
       rawLine,
       statusType,
       dates: taskDates(body),
-      fieldText: body.slice(fieldStart, metadata).trim()
+      fieldText: rawField.trim(),
+      fieldTextStart: bodyStart + fieldStart + leadingWhitespace,
+      fieldRange: {
+        start: bodyStart + bell,
+        end: Math.max(bodyStart + bell + '🔔'.length, bodyStart + fieldEnd)
+      }
     });
   }
   return { tasks, diagnostics };

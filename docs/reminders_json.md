@@ -107,7 +107,7 @@ On accepting a new snapshot, replace that producer's previously stored schedule 
 
 The payload includes no Tasks ID, status, source dates, original expression, timezone, default alert time, notification topic/body, authentication credentials, delivery acknowledgments, generation time, sequence number, or wire-format version. Internal persistence/schema version constants are not exported version identifiers. Consumers cannot determine ordering between conflicting snapshots or exactly-once delivery from this file alone.
 
-Only eligible active Tasks tasks (`TODO`, `IN_PROGRESS`, or `ON_HOLD`, according to the Tasks status mapping) with a valid reminder are exported, subject to the Tasks Global Filter. Inactive tasks, missing reminder fields, invalid fields, and unresolvable required dates produce no record. Diagnostics are not included, so absence does not explain why a task was omitted.
+Only eligible active Tasks tasks (`TODO`, `IN_PROGRESS`, or `ON_HOLD`, according to the Tasks status mapping) with a valid reminder are exported, subject to the Tasks Global Filter. Inactive tasks, missing reminder fields, invalid fields, and unresolvable required dates produce no record. Diagnostics are not included in this wire file; the plugin stores them internally and displays them in the editor and diagnostic UI.
 
 ## Updates and transport
 
@@ -119,7 +119,7 @@ The exporter writes through Obsidian's adapter without an explicit temporary-fil
 
 If the separate **notifox server** setting is nonblank, a successful changed file write is followed by an HTTP `POST` to that HTTP/HTTPS URL with `Content-Type: application/json` and the exact saved JSON as the body. The receiver URL is not the exported `ntfy-server` value and is not included in the payload.
 
-Unchanged content is not POSTed, including after changing the receiver URL or after a failed request. Failed local writes do not POST. Failed POSTs leave the local file intact and have no automatic network retry. A receiver should accept full replacements idempotently; integrations needing guaranteed delivery or ordering must provide that separately.
+Unchanged content is normally not POSTed. Changing settings, a pending failed request, or an explicit retry can resend the latest unchanged snapshot. Failed local writes do not POST. Failed POSTs leave the local file intact and set a persisted pending state. Transient failures retry after `Retry-After` or 30 seconds; permanent failures wait for an explicit retry or settings edit. A receiver must accept full replacements idempotently.
 
 ## Parsing and compatibility
 

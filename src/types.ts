@@ -52,6 +52,8 @@ export interface ReminderField {
 export interface Diagnostic {
   code: string;
   message: string;
+  clauseIndex?: number;
+  range?: { start: number; end: number };
 }
 
 export type ParseResult = { ok: true; field: ReminderField } | { ok: false; diagnostic: Diagnostic };
@@ -71,6 +73,8 @@ export interface DiscoveredTask {
   statusType: StatusType;
   dates: TaskDates;
   fieldText: string;
+  fieldTextStart: number;
+  fieldRange: { start: number; end: number };
 }
 
 export interface ResolverSettings {

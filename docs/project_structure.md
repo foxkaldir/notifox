@@ -8,6 +8,7 @@ Reminder syntax and syntax-error acceptance criteria are defined in [`../test_ma
 
 ```text
 main.ts
+  -> diagnostics/
   -> exporter.ts
        -> integrations/obsidian-tasks-plugin.ts
        -> parser.ts
@@ -20,7 +21,7 @@ main.ts
 types.ts -> shared by the integration, parsing, resolution, cache, and export layers
 ```
 
-At runtime, `main.ts` initializes the plugin and connects Obsidian events to the exporter. The exporter discovers eligible Tasks lines, parses their reminder fields, resolves them into timestamps, caches scan results, and writes the canonical `reminders.json` output.
+At runtime, `main.ts` initializes the plugin and diagnostics subsystem and connects Obsidian events to the exporter. The exporter discovers eligible Tasks lines, parses their reminder fields, resolves them into timestamps, caches scan results and diagnostics, and writes the canonical `reminders.json` output.
 
 The exporter saves updated state through a callback supplied by `main.ts`, which uses `persistence.ts` to serialize `data.json`. Settings edits also return through `main.ts` to trigger exporter reconciliation.
 
@@ -48,6 +49,16 @@ The central orchestration layer for incremental reminder export.
 - Updates the in-memory scan index and requests plugin-state persistence through the supplied callback.
 - Builds, verifies, repairs, and writes canonical `reminders.json` output only when its bytes need to change.
 - Reports regeneration results and deduplicates repeated operational errors shown to the user.
+
+### `src/diagnostics/`
+
+The contained diagnostic model and Obsidian presentation layer.
+
+- Defines persisted file diagnostics and operational configuration, file, server, and delivery errors.
+- Classifies HTTP responses, transport failures, retry delays, URLs, and default alert times with stable codes.
+- Renders editor underlines and hover details through a CodeMirror extension.
+- Owns deduplicated notices, the desktop health item, inline setting errors, diagnostic dialog, note navigation, and retry action.
+- Keeps editable diagnostic markup in `layout.ts`; spacing controls and presentation rules are grouped in the root `styles.css`.
 
 ### `src/parser.ts`
 
@@ -89,9 +100,9 @@ The runtime scan cache and compact storage codec for internal plugin state.
 
 - Defines plugin data, per-file scan entries, and the complete scan index.
 - Loads valid settings and compact or legacy verbose scan data, recovering an empty index for missing or corrupt caches.
-- Serializes internal state to deterministic, minified version 5 tuples with deduplicated fingerprints and base64url hashes.
+- Serializes internal state to deterministic, minified version 6 tuples with deduplicated fingerprints and base64url hashes.
 - Computes configuration fingerprints and decides when cached files need scanning or reparsing.
-- Updates cached file results by hashing content, reusing or collecting reminders, and tracking expiry and output changes.
+- Updates cached file results by hashing content, reusing or collecting reminders and diagnostics, and tracking expiry and output changes.
 - Produces stable, sorted `reminders.json` content.
 - Keeps format versions, codecs, validation, hashing, and reminder comparison helpers private.
 

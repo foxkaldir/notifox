@@ -46,6 +46,8 @@ it if no filter is configured. Examples use `America/Los_Angeles` and `09:00:00`
 |Repeat after previous clause|`- [ ] #task Follow up on [[Vendor approval]] #work 🔔 5pm, 9am, every hour after prev 🔼 📅 2027-04-15`|`2027-04-15 09:00:00`; `2027-04-15 10:00:00`; then hourly, including one alert at `2027-04-15 17:00:00`. With `last`, repeats would begin at `2027-04-15 18:00:00`.|
 |Explicit repeat boundary|`- [ ] #task Confirm the delivery slot in [[Office move]] #logistics 🔔 5pm, every 30m after 3pm ⏫ 📅 2027-04-15`|`2027-04-15 15:30:00`; `2027-04-15 16:00:00`; then every 30 minutes. No alert at `2027-04-15 15:00:00`; one at `2027-04-15 17:00:00`.|
 
+Invalid reminder fields are underlined in the Markdown editor. Hover the underline on desktop or tap it on mobile for details, or run **Open diagnostics** to see all outstanding reminder, configuration, file, and server issues and jump to the affected note. Configuration and endpoint errors appear inline with their settings. Desktop also shows a compact Notifox health item in the status bar.
+
 ## Dependencies
 
 The plugin requires Tasks 8.x and honors its Global Filter marker. It writes a
@@ -58,7 +60,8 @@ time, and ntfy server in the plugin settings. Set the ntfy server to a full topi
 The plugin best effort scans files in the vault for reminders, but may miss some
 in rare cases. Use **Regenerate reminder JSON** to read and hash every Markdown
 file when a same-size edit with a preserved modification time may have escaped metadata
-reconciliation.
+reconciliation. Transient notifox server failures are retried after the server's
+`Retry-After` value or 30 seconds. Use **Retry server update** for an immediate retry.
 
 ---
 
@@ -83,7 +86,7 @@ npm ci
 npm run dev
 ```
 
-Copy `main.js` and `manifest.json` into
+Copy `main.js`, `manifest.json`, and `styles.css` into
 `<test-vault>/.obsidian/plugins/notifox-reminders/`, then enable **Notifox
 Reminders** under **Settings → Community plugins**. After a rebuild, reload the
 plugin by toggling it off and on or by running **Reload app without saving**.
@@ -91,9 +94,7 @@ plugin by toggling it off and on or by running **Reload app without saving**.
 Before sharing a build, run the checks and create a minified bundle:
 
 ```sh
-npm test
-npm run lint
-npm run build
+npm test; npm run lint; npm run build
 ```
 
 ## Production builds
@@ -127,12 +128,12 @@ npm run build
    ```
 
 4. **Publish the release.** Tag the release commit exactly `x.y.z` without a
-   `v` prefix, then upload both required files as individual assets.
+   `v` prefix, then upload the plugin files as individual assets.
 
    ```sh
    git tag x.y.z
    git push origin x.y.z
-   gh release create x.y.z main.js manifest.json --verify-tag --title "x.y.z" --generate-notes
+   gh release create x.y.z main.js manifest.json styles.css --verify-tag --title "x.y.z" --generate-notes
    ```
 
 5. **Enable Community plugin updates (once).** Sign in to the

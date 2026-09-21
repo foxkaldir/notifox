@@ -21,8 +21,33 @@ const UNITS: Record<string, Unit> = {
 
 const KNOWN_BAD_UNITS = new Set(['month', 'months', 'mo', 'mos', 'year', 'years', 'y', 'yr', 'yrs']);
 
-function problem(code: string, message: string): ParseResult {
-  return { ok: false, diagnostic: { code, message } };
+function problem(code: string, message: string, range?: { start: number; end: number }, clauseIndex?: number): ParseResult {
+  return { ok: false, diagnostic: { code, message, range, clauseIndex } };
+}
+
+interface SourceClause {
+  text: string;
+  start: number;
+  end: number;
+}
+
+// Splits comma clauses while retaining offsets for editor diagnostics.
+function sourceClauses(text: string): SourceClause[] {
+  const clauses: SourceClause[] = [];
+  let start = 0;
+  for (let index = 0; index <= text.length; index += 1) {
+    if (index !== text.length && text[index] !== ',') continue;
+    clauses.push({ text: text.slice(start, index), start, end: index });
+    start = index + 1;
+  }
+  return clauses;
+}
+
+// Narrows a clause range to its non-whitespace source text.
+function trimmedClauseRange(clause: SourceClause): { start: number; end: number } {
+  const leading = clause.text.length - clause.text.trimStart().length;
+  const trailing = clause.text.length - clause.text.trimEnd().length;
+  return { start: clause.start + leading, end: Math.max(clause.start + leading, clause.end - trailing) };
 }
 
 function parseDecimal(value: string): { numerator: bigint; denominator: bigint; positive: boolean } | Diagnostic {
@@ -189,24 +214,35 @@ function parseRepeat(text: string, sourceIndex: number): RepeatClause | Diagnost
 export function parse(text: string): ParseResult {
   const trimmed = text.trim();
   if (!trimmed) return { ok: true, field: { oneShots: [] } };
-  const clauses = text.split(',');
-  if (clauses.some((clause) => !clause.trim())) return problem('EMPTY_CLAUSE', 'A comma creates an empty reminder clause.');
-  if (clauses.filter((clause) => /^every\b/i.test(clause.trim())).length > 1) {
-    return problem('MULTIPLE_REPEATS', 'A reminder field contains more than one repeat.');
+  const clauses = sourceClauses(text);
+  const emptyIndex = clauses.findIndex((clause) => !clause.text.trim());
+  if (emptyIndex >= 0) {
+    const clause = clauses[emptyIndex];
+    const start = Math.max(0, Math.min(text.length - 1, clause.start - (clause.start === text.length ? 1 : 0)));
+    return problem('EMPTY_CLAUSE', 'A comma creates an empty reminder clause.', { start, end: start + 1 }, emptyIndex);
+  }
+  const repeats = clauses.map((clause, index) => ({ clause, index }))
+    .filter(({ clause }) => /^every\b/i.test(clause.text.trim()));
+  if (repeats.length > 1) {
+    const repeated = repeats[1];
+    return problem('MULTIPLE_REPEATS', 'A reminder field contains more than one repeat.',
+      trimmedClauseRange(repeated.clause), repeated.index);
   }
   const field: ReminderField = { oneShots: [] };
   for (let index = 0; index < clauses.length; index += 1) {
-    const clause = clauses[index].trim();
+    const source = clauses[index];
+    const clause = source.text.trim();
+    const range = trimmedClauseRange(source);
     if (/^every\b/i.test(clause)) {
-      if (field.repeat) return problem('MULTIPLE_REPEATS', 'A reminder field contains more than one repeat.');
-      if (index !== clauses.length - 1) return problem('REPEAT_NOT_FINAL', 'A repeat clause must be final.');
+      if (field.repeat) return problem('MULTIPLE_REPEATS', 'A reminder field contains more than one repeat.', range, index);
+      if (index !== clauses.length - 1) return problem('REPEAT_NOT_FINAL', 'A repeat clause must be final.', range, index);
       const repeat = parseRepeat(clause, index);
-      if ('code' in repeat) return problem(repeat.code, repeat.message);
+      if ('code' in repeat) return problem(repeat.code, repeat.message, range, index);
       field.repeat = repeat;
       continue;
     }
     const oneShot = parseOneShot(clause, index);
-    if ('code' in oneShot) return problem(oneShot.code, oneShot.message);
+    if ('code' in oneShot) return problem(oneShot.code, oneShot.message, range, index);
     field.oneShots.push(oneShot);
   }
   return { ok: true, field };

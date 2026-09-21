@@ -14,7 +14,7 @@ function pluginData(files: Record<string, FileScanEntry>, outputRetryNeeded = tr
     defaultAlertTime: '09:00',
     ntfyServer: 'https://ntfy.sh/your-topic',
     notifoxServer: 'https://example.com/reminders',
-    scanIndex: { version: 3, files, outputRetryNeeded }
+    scanIndex: { version: 4, files, outputRetryNeeded, serverRetryNeeded: false }
   };
 }
 
@@ -30,20 +30,23 @@ function file(overrides: Partial<FileScanEntry> = {}): FileScanEntry {
     contentHash: HASH_A,
     fingerprint: HASH_B,
     reminders: [],
+    diagnostics: [],
     ...overrides
   };
 }
 
 describe('plugin data persistence', () => {
-  it('rejects old caches missing reminder text and preserves settings for a rescan', () => {
+  it('rejects old caches missing diagnostics and preserves settings for a rescan', () => {
     const data = pluginData({ 'note.md': file() });
     const oldCompact = JSON.parse(serializePluginData(data));
-    oldCompact.scanIndex.v = 4;
+    oldCompact.scanIndex.v = 5;
     const oldVerbose = { ...data, scanIndex: { ...data.scanIndex, files: {
-      'note.md': file({ reminders: [{ line: 1 } as any] })
+      'note.md': { ...file(), diagnostics: undefined }
     } } };
     for (const old of [oldCompact, oldVerbose]) {
-      expect(decodePluginData(old)).toEqual({ ...data, scanIndex: { version: 3, files: {}, outputRetryNeeded: false } });
+      expect(decodePluginData(old)).toEqual({
+        ...data, scanIndex: { version: 4, files: {}, outputRetryNeeded: false, serverRetryNeeded: false }
+      });
     }
   });
 
@@ -73,9 +76,18 @@ describe('plugin data persistence', () => {
       'z.md': file({ contentHash: HASH_B, fingerprint: HASH_A }),
       'a.md': file({
         refreshAfter: '2030-01-02T03:04:05Z',
-        reminders: [{ ...reminder(1), 'one-shots': [], repeat: { timestamp: '2030-01-02T03:04:05Z', duration: 60 } }]
+        reminders: [{ ...reminder(1), 'one-shots': [], repeat: { timestamp: '2030-01-02T03:04:05Z', duration: 60 } }],
+        diagnostics: [{
+          line: 4,
+          range: { start: 12, end: 20 },
+          code: 'INVALID_TIME',
+          message: 'The reminder time is invalid.',
+          severity: 'error',
+          source: 'local'
+        }]
       })
     }, false);
+    data.scanIndex!.serverRetryNeeded = true;
     expect(decodePluginData(JSON.parse(serializePluginData(data)))).toEqual(data);
   });
 
@@ -95,7 +107,7 @@ describe('plugin data persistence', () => {
         defaultAlertTime: '09:00',
         ntfyServer: 'https://ntfy.sh/your-topic',
         notifoxServer: 'https://example.com/reminders',
-        scanIndex: { version: 3, files: {}, outputRetryNeeded: false }
+        scanIndex: { version: 4, files: {}, outputRetryNeeded: false, serverRetryNeeded: false }
       });
     }
   });
@@ -139,6 +151,7 @@ const entry: FileScanEntry = {
   lastScannedAt: 150,
   contentHash: 'abc',
   reminders: [{ line: 2, text: 'Submit', 'one-shots': [{ timestamp: '2027-04-15T16:00:00Z' }] }],
+  diagnostics: [],
   refreshAfter: '2027-04-15T16:00:00Z',
   fingerprint: 'current'
 };
@@ -166,9 +179,9 @@ describe('scan index reconciliation', () => {
   });
 
   it('recovers an empty index from corrupt or missing persisted data', () => {
-    const empty = { version: 3, files: {}, outputRetryNeeded: false };
+    const empty = { version: 4, files: {}, outputRetryNeeded: false, serverRetryNeeded: false };
     for (const value of [undefined, null, [], {},
-      { scanIndex: { version: 3, files: { 'a.md': { ...file(), reminders: [{ nope: true }] } } } },
+      { scanIndex: { version: 4, files: { 'a.md': { ...file(), reminders: [{ nope: true }] } } } },
       { scanIndex: { version: 999, files: {} } }
     ]) {
       expect(decodePluginData(value).scanIndex).toEqual(empty);
@@ -197,10 +210,13 @@ describe('cached scan updates', () => {
       stat: { mtime: 100, size: 12 },
       fingerprint: HASH_A,
       reparse: false,
-      collectReminders: () => [
-        { line: 3, text: 'Submit', repeat: { timestamp: '2027-04-16T16:00:00Z', duration: 60 } },
-        { line: 1, text: 'Submit', 'one-shots': [{ timestamp: '2027-04-15T16:00:00Z' }] }
-      ]
+      collectFile: () => ({
+        reminders: [
+          { line: 3, text: 'Submit', repeat: { timestamp: '2027-04-16T16:00:00Z', duration: 60 } },
+          { line: 1, text: 'Submit', 'one-shots': [{ timestamp: '2027-04-15T16:00:00Z' }] }
+        ],
+        diagnostics: []
+      })
     };
     const first = await updateScanEntry(options);
     expect(first.remindersChanged).toBe(true);
@@ -209,14 +225,14 @@ describe('cached scan updates', () => {
     expect(first.entry.contentHash).toMatch(/^[0-9a-f]{64}$/);
     const reused = await updateScanEntry({
       ...options, previous: first.entry, stat: { mtime: 200, size: 12 },
-      collectReminders: () => { throw new Error('Unchanged content must use cached reminders'); }
+      collectFile: () => { throw new Error('Unchanged content must use cached reminders'); }
     });
     expect(reused.remindersChanged).toBe(false);
     expect(reused.entry.mtime).toBe(200);
     expect(reused.entry.reminders).toBe(first.entry.reminders);
     for (const change of [{ reparse: true }, { content: 'changed content' }, { fingerprint: HASH_B }]) {
       const updated = await updateScanEntry({
-        ...options, previous: first.entry, ...change, collectReminders: () => []
+        ...options, previous: first.entry, ...change, collectFile: () => ({ reminders: [], diagnostics: [] })
       });
       expect(updated.remindersChanged).toBe(true);
       expect(updated.entry.reminders).toEqual([]);

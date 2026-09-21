@@ -1,7 +1,7 @@
 {
   "id": "notifox-reminders",
   "name": "Notifox Reminders",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.8.7",
   "description": "Exports valid Tasks reminders to a JSON schedule on save.",
   "author": "catkaldir",

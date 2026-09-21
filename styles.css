@@ -1,0 +1,185 @@
+/*
+ * User-editable diagnostic layout controls.
+ * Change these values to adjust the spacing without touching TypeScript.
+ */
+:root {
+  --notifox-diagnostics-modal-width: 52rem;
+  --notifox-diagnostics-modal-inset: var(--size-4-5, 20px);
+  --notifox-diagnostics-title-gap: var(--size-4-4, 16px);
+  --notifox-diagnostics-row-padding: var(--size-4-3, 12px);
+  --notifox-diagnostics-footer-gap: var(--size-4-5, 20px);
+  --notifox-diagnostics-inline-gap: var(--size-4-6, 24px);
+  --notifox-diagnostics-content-gap: var(--size-4-2, 8px);
+  --notifox-diagnostics-tooltip-padding: var(--size-4-3, 12px) var(--size-4-4, 16px);
+}
+
+.notifox-invalid-input {
+  border-color: var(--text-error) !important;
+}
+
+.notifox-diagnostics-actions,
+.notifox-diagnostic-item-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--notifox-diagnostics-content-gap);
+}
+
+.notifox-setting-error-fallback {
+  color: var(--text-error);
+  font-size: var(--font-ui-smaller);
+  margin-top: var(--size-2-2);
+}
+
+.notifox-diagnostics-modal {
+  --modal-width: min(var(--notifox-diagnostics-modal-width), calc(100vw - var(--size-4-8)));
+}
+
+.notifox-diagnostics-modal .modal-content {
+  padding: 0 var(--notifox-diagnostics-modal-inset) var(--notifox-diagnostics-modal-inset);
+}
+
+.notifox-diagnostics-list {
+  display: grid;
+  gap: 0;
+  margin-top: var(--notifox-diagnostics-title-gap);
+}
+
+.notifox-diagnostic-item {
+  align-items: center;
+  column-gap: var(--notifox-diagnostics-inline-gap);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: var(--notifox-diagnostics-content-gap);
+}
+
+.notifox-diagnostic-item + .notifox-diagnostic-item {
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.notifox-diagnostic-primary {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-2-2);
+  line-height: var(--line-height-normal);
+  margin-block: var(--notifox-diagnostics-row-padding);
+  min-width: 0;
+}
+
+.notifox-diagnostic-message {
+  color: var(--text-normal);
+}
+
+.notifox-diagnostic-separator {
+  color: var(--text-faint);
+}
+
+.notifox-diagnostic-code {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
+}
+
+.notifox-diagnostic-detail,
+.notifox-diagnostic-metadata {
+  color: var(--text-muted);
+  grid-column: 1 / -1;
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.notifox-diagnostic-metadata {
+  align-items: baseline;
+  display: flex;
+  font-size: var(--font-ui-smaller);
+  gap: var(--size-2-2);
+}
+
+.notifox-diagnostic-detail:last-child,
+.notifox-diagnostic-metadata:last-child {
+  margin-bottom: var(--notifox-diagnostics-row-padding);
+}
+
+.notifox-diagnostic-item-actions {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  margin-block: var(--notifox-diagnostics-row-padding);
+}
+
+.notifox-diagnostics-actions {
+  border-top: 1px solid var(--background-modifier-border);
+  justify-content: flex-end;
+  margin-top: var(--notifox-diagnostics-footer-gap);
+}
+
+.notifox-diagnostics-actions > button {
+  margin-top: var(--notifox-diagnostics-row-padding);
+}
+
+.notifox-diagnostics-empty {
+  color: var(--text-muted);
+  margin-bottom: 0;
+  margin-top: var(--notifox-diagnostics-title-gap);
+}
+
+.notifox-diagnostic-tooltip {
+  display: grid;
+  gap: var(--notifox-diagnostics-content-gap);
+  line-height: var(--line-height-normal);
+  max-width: min(32rem, 80vw);
+  padding: var(--notifox-diagnostics-tooltip-padding);
+}
+
+.notifox-diagnostic-tooltip-message {
+  color: var(--text-normal);
+}
+
+.notifox-diagnostic-tooltip-metadata {
+  align-items: baseline;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: var(--font-ui-smaller);
+  gap: var(--size-2-2);
+}
+
+.notifox-diagnostic-tooltip-metadata code {
+  color: var(--text-muted);
+}
+
+.notifox-status {
+  cursor: pointer;
+}
+
+.notifox-status.mod-warning {
+  color: var(--text-warning);
+}
+
+.notifox-status.mod-error {
+  color: var(--text-error);
+}
+
+@media (max-width: 600px) {
+  :root {
+    --notifox-diagnostics-modal-inset: var(--size-4-3, 12px);
+    --notifox-diagnostics-inline-gap: var(--size-4-3, 12px);
+    --notifox-diagnostics-tooltip-padding: var(--size-4-3, 12px);
+  }
+
+  .notifox-diagnostic-item {
+    grid-template-columns: 1fr;
+  }
+
+  .notifox-diagnostic-item-actions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  .notifox-diagnostic-tooltip {
+    max-width: calc(100vw - var(--size-4-6));
+  }
+}

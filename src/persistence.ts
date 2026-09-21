@@ -1,14 +1,15 @@
 import type { NotifoxSettings } from './settings';
 import { isPriority, type TasksConfiguration } from './integrations/obsidian-tasks-plugin';
+import { diagnosticsEqual, type FileDiagnostic } from './diagnostics/model';
 import type { ExportReminder, Priority } from './types';
 
 export interface PluginData extends NotifoxSettings {
   scanIndex?: ScanIndex;
 }
 
-const SCAN_INDEX_VERSION = 3;
+const SCAN_INDEX_VERSION = 4;
 const EXPORTER_SCHEMA_VERSION = 4;
-const PERSISTENCE_VERSION = 5;
+const PERSISTENCE_VERSION = 6;
 const HEX_HASH = /^[0-9a-f]{64}$/;
 const BASE64URL_HASH = /^[A-Za-z0-9_-]{43}$/;
 
@@ -18,6 +19,7 @@ export interface FileScanEntry {
   lastScannedAt: number;
   contentHash: string;
   reminders: ExportReminder[];
+  diagnostics: FileDiagnostic[];
   refreshAfter?: string;
   fingerprint: string;
 }
@@ -26,11 +28,24 @@ export interface ScanIndex {
   version: number;
   files: Record<string, FileScanEntry>;
   outputRetryNeeded: boolean;
+  serverRetryNeeded: boolean;
 }
 
 // Creates a clean index for first-run or recovery scans.
 function emptyScanIndex(): ScanIndex {
-  return { version: SCAN_INDEX_VERSION, files: {}, outputRetryNeeded: false };
+  return { version: SCAN_INDEX_VERSION, files: {}, outputRetryNeeded: false, serverRetryNeeded: false };
+}
+
+// Checks the persisted shape of one line-relative reminder diagnostic.
+function isFileDiagnostic(value: unknown): value is FileDiagnostic {
+  if (!value || typeof value !== 'object') return false;
+  const issue = value as Partial<FileDiagnostic>;
+  return typeof issue.code === 'string' && typeof issue.message === 'string'
+    && Number.isInteger(issue.line) && (issue.line as number) > 0
+    && (issue.severity === 'error' || issue.severity === 'warning' || issue.severity === 'info')
+    && (issue.source === 'local' || issue.source === 'server')
+    && Boolean(issue.range) && Number.isInteger(issue.range?.start) && Number.isInteger(issue.range?.end)
+    && (issue.range?.start ?? -1) >= 0 && (issue.range?.end ?? -1) >= (issue.range?.start ?? 0);
 }
 
 // Checks the persisted shape of one reminder record.
@@ -54,7 +69,7 @@ function readScanIndex(value: unknown): ScanIndex | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const candidate = value as Partial<ScanIndex>;
   if (candidate.version !== SCAN_INDEX_VERSION || !candidate.files || typeof candidate.files !== 'object'
-    || (candidate.outputRetryNeeded !== undefined && typeof candidate.outputRetryNeeded !== 'boolean')) return undefined;
+    || typeof candidate.outputRetryNeeded !== 'boolean' || typeof candidate.serverRetryNeeded !== 'boolean') return undefined;
   for (const entryValue of Object.values(candidate.files)) {
     if (!entryValue || typeof entryValue !== 'object') return undefined;
     const entry = entryValue as Partial<FileScanEntry>;
@@ -62,13 +77,15 @@ function readScanIndex(value: unknown): ScanIndex | undefined {
       || typeof entry.contentHash !== 'string' || !HEX_HASH.test(entry.contentHash)
       || typeof entry.fingerprint !== 'string' || !HEX_HASH.test(entry.fingerprint)
       || !Array.isArray(entry.reminders) || !entry.reminders.every(isReminder)
+      || !Array.isArray(entry.diagnostics) || !entry.diagnostics.every(isFileDiagnostic)
       || (entry.refreshAfter !== undefined
         && (typeof entry.refreshAfter !== 'string' || !Number.isFinite(Date.parse(entry.refreshAfter))))) return undefined;
   }
   return {
     version: SCAN_INDEX_VERSION,
     files: candidate.files as Record<string, FileScanEntry>,
-    outputRetryNeeded: candidate.outputRetryNeeded === true
+    outputRetryNeeded: candidate.outputRetryNeeded,
+    serverRetryNeeded: candidate.serverRetryNeeded
   };
 }
 
@@ -136,6 +153,9 @@ export function shouldScanEntry(
 }
 
 type ReminderTuple = [number, string, Priority | null, string[] | null, [string, number] | null];
+type DiagnosticTuple = [number, number, number, string, string, DiagnosticSeverityIndex, DiagnosticSourceIndex];
+type DiagnosticSeverityIndex = 0 | 1 | 2;
+type DiagnosticSourceIndex = 0 | 1;
 type FileTuple = [
   // path: Markdown file path relative to the vault root.
   string,
@@ -152,7 +172,9 @@ type FileTuple = [
   // refreshAfter: Earliest cached reminder timestamp, or null when no refresh is scheduled.
   string | null,
   // reminders: Cached [line, text, priority or null, one-shots or null, repeat or null] tuples.
-  ReminderTuple[]
+  ReminderTuple[],
+  // diagnostics: Cached [line, start, end, code, message, severity, source] tuples.
+  DiagnosticTuple[]
 ];
 
 interface CompactScanIndex {
@@ -164,6 +186,8 @@ interface CompactScanIndex {
   f: FileTuple[];
   // Whether writing the exported reminder output still needs to be retried.
   r: boolean;
+  // Whether posting the latest exported bytes still needs to be retried.
+  s: boolean;
 }
 
 interface EncodedPluginData {
@@ -223,7 +247,31 @@ function decodeReminder(value: unknown): ExportReminder | undefined {
   return reminder;
 }
 
-// Encodes the runtime scan index into deterministic compact version 5 tuples.
+// Encodes one line diagnostic without repeated property names.
+function encodeDiagnostic(issue: FileDiagnostic): DiagnosticTuple {
+  const severity: DiagnosticSeverityIndex = issue.severity === 'error' ? 0 : issue.severity === 'warning' ? 1 : 2;
+  const source: DiagnosticSourceIndex = issue.source === 'local' ? 0 : 1;
+  return [issue.line, issue.range.start, issue.range.end, issue.code, issue.message, severity, source];
+}
+
+// Decodes and validates one compact line diagnostic.
+function decodeDiagnostic(value: unknown): FileDiagnostic | undefined {
+  if (!Array.isArray(value) || value.length !== 7) return undefined;
+  const [line, start, end, code, message, severity, source] = value;
+  if (!Number.isInteger(line) || line < 1 || !Number.isInteger(start) || start < 0
+    || !Number.isInteger(end) || end < start || typeof code !== 'string' || typeof message !== 'string'
+    || ![0, 1, 2].includes(severity) || ![0, 1].includes(source)) return undefined;
+  return {
+    line,
+    range: { start, end },
+    code,
+    message,
+    severity: severity === 0 ? 'error' : severity === 1 ? 'warning' : 'info',
+    source: source === 0 ? 'local' : 'server'
+  };
+}
+
+// Encodes the runtime scan index into deterministic compact version 6 tuples.
 function encodeScanIndex(index: ScanIndex): CompactScanIndex {
   const hashes = [...new Set(Object.values(index.files).map((entry) => entry.fingerprint))].sort();
   const hashIndexes = new Map(hashes.map((hash, position) => [hash, position]));
@@ -236,32 +284,43 @@ function encodeScanIndex(index: ScanIndex): CompactScanIndex {
     encodeHash(entry.contentHash),
     hashIndexes.get(entry.fingerprint)!,
     entry.refreshAfter ?? null,
-    entry.reminders.map(encodeReminder)
+    entry.reminders.map(encodeReminder),
+    entry.diagnostics.map(encodeDiagnostic)
     ] satisfies FileTuple);
-  return { v: PERSISTENCE_VERSION, h: hashes.map(encodeHash), f: files, r: index.outputRetryNeeded };
+  return {
+    v: PERSISTENCE_VERSION,
+    h: hashes.map(encodeHash),
+    f: files,
+    r: index.outputRetryNeeded,
+    s: index.serverRetryNeeded
+  };
 }
 
-// Decodes a complete compact version 5 scan index or rejects it for a safe rescan.
+// Decodes a complete compact version 6 scan index or rejects it for a safe rescan.
 function decodeScanIndex(value: unknown): ScanIndex | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const candidate = value as Partial<CompactScanIndex>;
   if (candidate.v !== PERSISTENCE_VERSION || !Array.isArray(candidate.h) || !Array.isArray(candidate.f)
-    || typeof candidate.r !== 'boolean') return undefined;
+    || typeof candidate.r !== 'boolean' || typeof candidate.s !== 'boolean') return undefined;
   const hashes = candidate.h.map((hash) => typeof hash === 'string' ? decodeHash(hash) : undefined);
   if (hashes.some((hash) => hash === undefined)) return undefined;
   const files: Record<string, FileScanEntry> = {};
   for (const valueEntry of candidate.f) {
-    if (!Array.isArray(valueEntry) || valueEntry.length !== 8) return undefined;
-    const [path, mtime, size, lastScannedAt, encodedContentHash, fingerprintIndex, refreshTime, reminderValues] = valueEntry;
+    if (!Array.isArray(valueEntry) || valueEntry.length !== 9) return undefined;
+    const [
+      path, mtime, size, lastScannedAt, encodedContentHash, fingerprintIndex, refreshTime, reminderValues, diagnosticValues
+    ] = valueEntry;
     const contentHash = typeof encodedContentHash === 'string' ? decodeHash(encodedContentHash) : undefined;
     if (typeof path !== 'string' || Object.hasOwn(files, path)
       || !Number.isFinite(mtime) || !Number.isFinite(size) || !Number.isFinite(lastScannedAt)
       || contentHash === undefined || !Number.isInteger(fingerprintIndex)
       || fingerprintIndex < 0 || fingerprintIndex >= hashes.length
       || (refreshTime !== null && (typeof refreshTime !== 'string' || !Number.isFinite(Date.parse(refreshTime))))
-      || !Array.isArray(reminderValues)) return undefined;
+      || !Array.isArray(reminderValues) || !Array.isArray(diagnosticValues)) return undefined;
     const reminders = reminderValues.map(decodeReminder);
-    if (reminders.some((reminder) => reminder === undefined)) return undefined;
+    const diagnostics = diagnosticValues.map(decodeDiagnostic);
+    if (reminders.some((reminder) => reminder === undefined)
+      || diagnostics.some((diagnostic) => diagnostic === undefined)) return undefined;
     files[path] = {
       mtime,
       size,
@@ -269,10 +328,16 @@ function decodeScanIndex(value: unknown): ScanIndex | undefined {
       contentHash,
       fingerprint: hashes[fingerprintIndex]!,
       reminders: reminders as ExportReminder[],
+      diagnostics: diagnostics as FileDiagnostic[],
       ...(refreshTime === null ? {} : { refreshAfter: refreshTime })
     };
   }
-  return { version: SCAN_INDEX_VERSION, files, outputRetryNeeded: candidate.r };
+  return {
+    version: SCAN_INDEX_VERSION,
+    files,
+    outputRetryNeeded: candidate.r,
+    serverRetryNeeded: candidate.s
+  };
 }
 
 // Encodes runtime plugin data for compact deterministic persistence.
@@ -314,24 +379,29 @@ export async function updateScanEntry(options: {
   stat: { mtime: number; size: number };
   fingerprint: string;
   reparse: boolean;
-  collectReminders: () => ExportReminder[];
-}): Promise<{ entry: FileScanEntry; remindersChanged: boolean }> {
-  const { previous, content, stat, fingerprint, reparse, collectReminders } = options;
+  collectFile: () => { reminders: ExportReminder[]; diagnostics: FileDiagnostic[] };
+}): Promise<{ entry: FileScanEntry; remindersChanged: boolean; diagnosticsChanged: boolean }> {
+  const { previous, content, stat, fingerprint, reparse, collectFile } = options;
   const contentHash = await sha256(content);
-  const reminders = reparse || !previous || previous.contentHash !== contentHash || previous.fingerprint !== fingerprint
-    ? collectReminders().sort((left, right) => left.line - right.line)
-    : previous.reminders;
+  const shouldCollect = reparse || !previous || previous.contentHash !== contentHash || previous.fingerprint !== fingerprint;
+  const collected = shouldCollect ? collectFile() : undefined;
+  const reminders = collected?.reminders.sort((left, right) => left.line - right.line) ?? previous!.reminders;
+  const diagnostics = collected?.diagnostics.sort((left, right) => left.line - right.line || left.range.start - right.range.start)
+    ?? previous!.diagnostics;
   const entry: FileScanEntry = {
     mtime: stat.mtime,
     size: stat.size,
     lastScannedAt: Date.now(),
     contentHash,
     reminders,
+    diagnostics,
     refreshAfter: refreshAfter(reminders),
     fingerprint
   };
   return {
     entry,
-    remindersChanged: !previous || previous.fingerprint !== fingerprint || !remindersEqual(previous.reminders, reminders)
+    remindersChanged: !previous || previous.fingerprint !== fingerprint || !remindersEqual(previous.reminders, reminders),
+    diagnosticsChanged: !previous || previous.fingerprint !== fingerprint
+      || !diagnosticsEqual(previous.diagnostics, diagnostics)
   };
 }

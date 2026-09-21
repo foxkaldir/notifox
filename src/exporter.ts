@@ -1,8 +1,12 @@
 import { Temporal } from '@js-temporal/polyfill';
 import { Notice, TFile, TFolder, normalizePath, requestUrl, type App, type TAbstractFile } from 'obsidian';
+import {
+  classifyServerResponse, OperationalError, operationalDiagnostic, serverTransportDiagnostic,
+  retryDelayMilliseconds, type FileDiagnostic, type OperationalDiagnostic
+} from './diagnostics/model';
 import { isNtfyTopicUrl } from './integrations/ntfy';
 import { parse } from './parser';
-import { parseDefaultAlertTime, resolveReminder } from './resolver';
+import { parseDefaultAlertTime, resolutionDiagnostic, resolveReminder } from './resolver';
 import {
   canonicalOutput, configurationFingerprint, shouldScanEntry, updateScanEntry,
   type PluginData, type ScanIndex
@@ -27,6 +31,17 @@ interface ExporterOptions {
   index: ScanIndex;
   getSettings: () => NotifoxSettings;
   saveData: (data: PluginData) => Promise<void>;
+  diagnostics: DiagnosticsReporter;
+}
+
+interface DiagnosticsReporter {
+  setFile(path: string, diagnostics: FileDiagnostic[]): void;
+  removeFile(path: string): void;
+  report(issue: OperationalDiagnostic, notify?: boolean): void;
+  reportServer(issue: OperationalDiagnostic): void;
+  clear(code: string): void;
+  serverConnected(): void;
+  setServerPending(pending: boolean): void;
 }
 
 // Identifies Markdown paths without requiring a live file object.
@@ -45,11 +60,47 @@ function collectFileReminders(
   content: string,
   configuration: TasksConfiguration,
   resolver: ResolverSettings
-): ExportReminder[] {
+): { reminders: ExportReminder[]; diagnostics: FileDiagnostic[] } {
   const discovered = discoverTasks(path, content, configuration);
-  return discovered.tasks.flatMap((task) => {
+  const diagnostics: FileDiagnostic[] = discovered.diagnostics.map((diagnostic) => ({
+    code: diagnostic.code,
+    message: diagnostic.message,
+    line: diagnostic.line,
+    range: diagnostic.range,
+    severity: 'error',
+    source: 'local'
+  }));
+  const reminders = discovered.tasks.flatMap((task) => {
     const parsed = parse(task.fieldText);
-    if (!parsed.ok) return [];
+    if (!parsed.ok) {
+      const range = parsed.diagnostic.range
+        ? {
+          start: task.fieldTextStart + parsed.diagnostic.range.start,
+          end: task.fieldTextStart + parsed.diagnostic.range.end
+        }
+        : task.fieldRange;
+      diagnostics.push({
+        code: parsed.diagnostic.code,
+        message: parsed.diagnostic.message,
+        line: task.lineNumber,
+        range,
+        severity: 'error',
+        source: 'local'
+      });
+      return [];
+    }
+    const unresolved = resolutionDiagnostic(parsed.field, task);
+    if (unresolved) {
+      diagnostics.push({
+        code: unresolved.code,
+        message: unresolved.message,
+        line: task.lineNumber,
+        range: task.fieldRange,
+        severity: 'error',
+        source: 'local'
+      });
+      return [];
+    }
     const resolved = resolveReminder(parsed.field, task, resolver);
     if (!resolved) return [];
     const record: ExportReminder = { line: task.lineNumber, text: task.text };
@@ -62,6 +113,7 @@ function collectFileReminders(
     }
     return [record];
   });
+  return { reminders, diagnostics };
 }
 
 export class IncrementalReminderExporter {
@@ -69,12 +121,14 @@ export class IncrementalReminderExporter {
   private readonly outputPath: string;
   private readonly getSettings: () => NotifoxSettings;
   private readonly saveData: (data: PluginData) => Promise<void>;
+  private readonly diagnostics: DiagnosticsReporter;
   private readonly index: ScanIndex;
   private readonly dirty = new Map<string, DirtyPath>();
   private generation = 0;
   private quietTimer: number | undefined;
   private maxTimer: number | undefined;
   private settingsTimer: number | undefined;
+  private serverRetryTimer: number | undefined;
   private batchRunning = false;
   private runAgain = false;
   private reconcilePending = false;
@@ -85,6 +139,9 @@ export class IncrementalReminderExporter {
   private unloaded = false;
   private lastOutputBytes: string | undefined;
   private lastFailure = '';
+  private lastFailureCode = '';
+  private serverRetryBlocked = false;
+  private nextServerRetryAt = 0;
   private persistChain: Promise<void> = Promise.resolve();
 
   // Captures the vault dependencies and persisted index.
@@ -94,10 +151,12 @@ export class IncrementalReminderExporter {
     this.index = options.index;
     this.getSettings = options.getSettings;
     this.saveData = options.saveData;
+    this.diagnostics = options.diagnostics;
   }
 
   // Persists normalized state before event processing begins.
   initialize(): Promise<void> {
+    this.diagnostics.setServerPending(this.index.serverRetryNeeded);
     return this.persistData();
   }
 
@@ -111,10 +170,19 @@ export class IncrementalReminderExporter {
     this.unloaded = true;
     this.clearBatchTimers();
     if (this.settingsTimer !== undefined) window.clearTimeout(this.settingsTimer);
+    if (this.serverRetryTimer !== undefined) window.clearTimeout(this.serverRetryTimer);
   }
 
   // Saves settings immediately and debounces their rescan.
   async settingsChanged(): Promise<void> {
+    const serverEnabled = this.getSettings().notifoxServer.trim().length > 0;
+    this.index.serverRetryNeeded = serverEnabled;
+    this.serverRetryBlocked = false;
+    this.nextServerRetryAt = 0;
+    if (this.serverRetryTimer !== undefined) window.clearTimeout(this.serverRetryTimer);
+    this.serverRetryTimer = undefined;
+    this.diagnostics.setServerPending(serverEnabled);
+    if (!serverEnabled) this.diagnostics.serverConnected();
     await this.persistData();
     if (this.settingsTimer !== undefined) window.clearTimeout(this.settingsTimer);
     this.settingsTimer = window.setTimeout(() => {
@@ -163,6 +231,25 @@ export class IncrementalReminderExporter {
     this.forceAllPending = true;
     this.inspectOutputPending = true;
     this.manualNoticePending = true;
+    if (this.index.serverRetryNeeded) {
+      this.serverRetryBlocked = false;
+      this.nextServerRetryAt = 0;
+      if (this.serverRetryTimer !== undefined) window.clearTimeout(this.serverRetryTimer);
+      this.serverRetryTimer = undefined;
+    }
+    this.scheduleBatch(0);
+  }
+
+  // Queues the latest local snapshot for an explicit server retry.
+  retryServer(): void {
+    if (!this.getSettings().notifoxServer.trim()) return;
+    this.index.serverRetryNeeded = true;
+    this.serverRetryBlocked = false;
+    this.nextServerRetryAt = 0;
+    if (this.serverRetryTimer !== undefined) window.clearTimeout(this.serverRetryTimer);
+    this.serverRetryTimer = undefined;
+    this.inspectOutputPending = true;
+    this.diagnostics.setServerPending(true);
     this.scheduleBatch(0);
   }
 
@@ -246,6 +333,8 @@ export class IncrementalReminderExporter {
     try {
       await this.processBatch();
       this.lastFailure = '';
+      if (this.lastFailureCode) this.diagnostics.clear(this.lastFailureCode);
+      this.lastFailureCode = '';
     } catch (error) {
       this.reportFailure(error);
     } finally {
@@ -293,13 +382,31 @@ export class IncrementalReminderExporter {
     vaultName: string;
   }> {
     const tasks = await readTasksConfiguration(this.app);
-    if (!tasks.ok) throw new Error(tasks.diagnostic.message);
+    if (!tasks.ok) throw new OperationalError({
+      code: tasks.diagnostic.code,
+      message: tasks.diagnostic.message,
+      scope: 'configuration',
+      severity: 'error',
+      retryable: false
+    });
     const defaultAlertTime = parseDefaultAlertTime(settings.defaultAlertTime);
-    if (!defaultAlertTime) throw new Error('Default alert time must use HH:mm or HH:mm:ss.');
+    if (!defaultAlertTime) throw new OperationalError({
+      code: 'INVALID_DEFAULT_ALERT_TIME',
+      message: 'Default alert time must use HH:mm or HH:mm:ss.',
+      scope: 'configuration',
+      severity: 'error',
+      retryable: false
+    });
     try {
       Temporal.Now.zonedDateTimeISO(settings.timeZone);
     } catch {
-      throw new Error('Timezone must be a valid IANA timezone.');
+      throw new OperationalError({
+        code: 'INVALID_TIME_ZONE',
+        message: 'Timezone must be a valid IANA timezone.',
+        scope: 'configuration',
+        severity: 'error',
+        retryable: false
+      });
     }
     const vaultName = this.app.vault.getName();
     const fingerprint = await configurationFingerprint(
@@ -329,8 +436,12 @@ export class IncrementalReminderExporter {
 
     if (request.inspectOutput) await this.readActualOutput();
     const output = this.buildOutputIfNeeded(result.remindersChanged, request.inspectOutput);
-    if (result.indexChanged || result.remindersChanged || this.index.outputRetryNeeded) await this.persistData();
+    if (result.indexChanged || result.remindersChanged || this.index.outputRetryNeeded || this.index.serverRetryNeeded) {
+      await this.persistData();
+    }
     const wroteOutput = output === undefined ? false : await this.writeOutputIfChanged(output);
+    if (output !== undefined && !this.serverRetryBlocked && Date.now() >= this.nextServerRetryAt
+      && (wroteOutput || this.index.serverRetryNeeded)) await this.postOutput(output);
     if (result.error) throw result.error;
     if (request.showManualNotice) this.showManualNotice(wroteOutput);
   }
@@ -429,7 +540,15 @@ export class IncrementalReminderExporter {
     } catch (error) {
       const finalFile = this.app.vault.getAbstractFileByPath(path);
       if (!(finalFile instanceof TFile)) return this.removeIndexedPath(path);
-      throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new OperationalError({
+        code: 'FILE_SCAN_FAILED',
+        message: `Could not scan ${path}.`,
+        scope: 'file',
+        severity: 'error',
+        retryable: true,
+        detail
+      });
     }
   }
 
@@ -449,13 +568,14 @@ export class IncrementalReminderExporter {
       stat: file.stat,
       fingerprint: scan.fingerprint,
       reparse,
-      collectReminders: () => collectFileReminders(file.path, content, scan.configuration, {
+      collectFile: () => collectFileReminders(file.path, content, scan.configuration, {
         timeZone: settings.timeZone,
         defaultAlertTime: scan.defaultAlertTime,
         now
       })
     });
     this.index.files[file.path] = result.entry;
+    this.diagnostics.setFile(file.path, result.entry.diagnostics);
     return { remindersChanged: result.remindersChanged, indexChanged: true };
   }
 
@@ -463,12 +583,14 @@ export class IncrementalReminderExporter {
   private removeIndexedPath(path: string): { remindersChanged: boolean; indexChanged: boolean } {
     const existed = this.index.files[path] !== undefined;
     if (existed) delete this.index.files[path];
+    this.diagnostics.removeFile(path);
     return { remindersChanged: existed, indexChanged: existed };
   }
 
   // Builds canonical output only when it may need comparison or repair.
   private buildOutputIfNeeded(remindersChanged: boolean, inspectOutput: boolean): string | undefined {
-    if (!remindersChanged && !inspectOutput && !this.index.outputRetryNeeded) return undefined;
+    const serverRetryDue = this.index.serverRetryNeeded && !this.serverRetryBlocked && Date.now() >= this.nextServerRetryAt;
+    if (!remindersChanged && !inspectOutput && !this.index.outputRetryNeeded && !serverRetryDue) return undefined;
     const settings = this.getSettings();
     const output = canonicalOutput(this.app.vault.getName(), settings.ntfyServer, this.index.files);
     if (this.lastOutputBytes !== output) this.index.outputRetryNeeded = true;
@@ -499,9 +621,16 @@ export class IncrementalReminderExporter {
       this.index.outputRetryNeeded = false;
       if (!isNtfyTopicUrl(this.getSettings().ntfyServer)
         && Object.values(this.index.files).some((entry) => entry.reminders.length > 0)) {
-        new Notice('Notifox: open Settings → Notifox reminders and update the ntfy.sh server field to include a topic, for example https://ntfy.sh/your-topic.');
+        this.diagnostics.report({
+          code: 'INVALID_NTFY_TOPIC',
+          message: 'Include one topic in the ntfy URL.',
+          scope: 'configuration',
+          severity: 'warning',
+          retryable: false
+        });
+      } else {
+        this.diagnostics.clear('INVALID_NTFY_TOPIC');
       }
-      await this.postOutput(output);
       await this.persistData();
       return true;
     } catch (error) {
@@ -514,13 +643,76 @@ export class IncrementalReminderExporter {
   // Posts saved JSON to the configured endpoint without failing local exports.
   private async postOutput(output: string): Promise<void> {
     const url = this.getSettings().notifoxServer.trim();
-    if (!url) return;
-    try {
-      if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error('Use an HTTP or HTTPS URL.');
-      await requestUrl({ url, method: 'POST', contentType: 'application/json', body: output });
-    } catch {
-      new Notice('Notifox Reminders: Could not POST reminders.json to the notifox server. Check the URL and server availability.');
+    if (!url) {
+      this.index.serverRetryNeeded = false;
+      this.diagnostics.serverConnected();
+      return;
     }
+    try {
+      if (!['http:', 'https:'].includes(new URL(url).protocol)) {
+        this.index.serverRetryNeeded = true;
+        this.serverRetryBlocked = true;
+        this.diagnostics.report({
+          code: 'INVALID_NOTIFOX_URL',
+          message: 'Use an HTTP or HTTPS URL.',
+          scope: 'configuration',
+          severity: 'error',
+          retryable: false
+        });
+        this.diagnostics.setServerPending(true);
+        await this.persistData();
+        return;
+      }
+      this.diagnostics.clear('INVALID_NOTIFOX_URL');
+      this.diagnostics.setServerPending(true);
+      const response = await requestUrl({
+        url,
+        method: 'POST',
+        contentType: 'application/json',
+        body: output,
+        throw: false
+      });
+      const issue = classifyServerResponse(response);
+      if (issue) {
+        this.index.serverRetryNeeded = true;
+        this.serverRetryBlocked = !issue.retryable;
+        const retryDelay = retryDelayMilliseconds(issue);
+        this.nextServerRetryAt = Date.now() + retryDelay;
+        if (issue.retryable) this.scheduleServerRetry(retryDelay);
+        else if (this.serverRetryTimer !== undefined) {
+          window.clearTimeout(this.serverRetryTimer);
+          this.serverRetryTimer = undefined;
+        }
+        this.diagnostics.reportServer(issue);
+        this.diagnostics.setServerPending(true);
+      } else {
+        this.index.serverRetryNeeded = false;
+        this.serverRetryBlocked = false;
+        this.nextServerRetryAt = 0;
+        if (this.serverRetryTimer !== undefined) window.clearTimeout(this.serverRetryTimer);
+        this.serverRetryTimer = undefined;
+        this.diagnostics.serverConnected();
+      }
+    } catch (error) {
+      const issue = serverTransportDiagnostic(error);
+      this.index.serverRetryNeeded = true;
+      this.serverRetryBlocked = false;
+      const retryDelay = retryDelayMilliseconds(issue);
+      this.nextServerRetryAt = Date.now() + retryDelay;
+      this.scheduleServerRetry(retryDelay);
+      this.diagnostics.reportServer(issue);
+      this.diagnostics.setServerPending(true);
+    }
+    await this.persistData();
+  }
+
+  // Schedules one bounded retry for a transient server failure.
+  private scheduleServerRetry(delay: number): void {
+    if (this.serverRetryTimer !== undefined) window.clearTimeout(this.serverRetryTimer);
+    this.serverRetryTimer = window.setTimeout(() => {
+      this.serverRetryTimer = undefined;
+      this.retryServer();
+    }, delay);
   }
 
   // Reports the manual command result without exposing scan internals.
@@ -531,9 +723,12 @@ export class IncrementalReminderExporter {
 
   // Deduplicates repeated operational failures shown to the user.
   private reportFailure(error: unknown): void {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === this.lastFailure) return;
-    this.lastFailure = message;
-    new Notice(`Notifox Reminders: ${message}`);
+    const issue = operationalDiagnostic(error);
+    const key = `${issue.code}\u0000${issue.message}\u0000${issue.detail ?? ''}`;
+    if (key === this.lastFailure) return;
+    if (this.lastFailureCode && this.lastFailureCode !== issue.code) this.diagnostics.clear(this.lastFailureCode);
+    this.lastFailure = key;
+    this.lastFailureCode = issue.code;
+    this.diagnostics.report(issue);
   }
 }

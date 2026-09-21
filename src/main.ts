@@ -1,4 +1,5 @@
 import { Plugin, normalizePath } from 'obsidian';
+import { DiagnosticManager, operationalDiagnostic } from './diagnostics';
 import { IncrementalReminderExporter } from './exporter';
 import { decodePluginData, serializePluginData, type PluginData } from './persistence';
 import { DEFAULT_SETTINGS, NotifoxSettingTab, type NotifoxSettings } from './settings';
@@ -14,26 +15,47 @@ function newVaultId(): string {
 
 export default class NotifoxRemindersPlugin extends Plugin {
   declare settings: NotifoxSettings;
+  diagnostics!: DiagnosticManager;
   private exporter!: IncrementalReminderExporter;
 
   // Loads state and wires the plugin entry point to the exporter.
   async onload(): Promise<void> {
-    const saved = decodePluginData(await this.loadData());
+    this.diagnostics = new DiagnosticManager(this.app, this);
+    let saved;
+    try {
+      saved = decodePluginData(await this.loadData());
+    } catch (error) {
+      saved = decodePluginData(null);
+      this.diagnostics.report(operationalDiagnostic(error));
+    }
     this.settings = this.loadSettings(saved);
+    this.diagnostics.hydrate(saved.scanIndex.files);
+    this.diagnostics.register();
     this.exporter = new IncrementalReminderExporter({
       app: this.app,
       outputPath: this.outputPath(),
       index: saved.scanIndex,
       getSettings: () => this.settings,
-      saveData: (data) => this.app.vault.adapter.write(this.dataPath(), serializePluginData(data))
+      saveData: (data) => this.app.vault.adapter.write(this.dataPath(), serializePluginData(data)),
+      diagnostics: this.diagnostics
     });
-    await this.exporter.initialize();
+    this.diagnostics.setRetryHandler(() => this.exporter.retryServer());
+    try {
+      await this.exporter.initialize();
+    } catch (error) {
+      this.diagnostics.report(operationalDiagnostic(error));
+    }
 
     this.addSettingTab(new NotifoxSettingTab(this.app, this));
     this.addCommand({
       id: 'regenerate-reminder-json',
       name: 'Regenerate reminder JSON',
       callback: () => this.exporter.regenerate()
+    });
+    this.addCommand({
+      id: 'retry-server-update',
+      name: 'Retry server update',
+      callback: () => this.exporter.retryServer()
     });
     this.app.workspace.onLayoutReady(() => this.startExporter());
   }

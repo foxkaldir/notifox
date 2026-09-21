@@ -12,7 +12,10 @@ const standardDates: TaskDates = { due: '2027-04-15', scheduled: '2027-04-10', s
 const standardConfiguration = { globalFilter: '', statusTypes: new Map<string, StatusType>([[' ', 'TODO'], ['x', 'DONE']]) };
 
 function fixture(dates: TaskDates = standardDates): DiscoveredTask {
-  return { path: 'Fixture.md', lineNumber: 1, rawLine: '- [ ] Submit', text: 'Submit', statusType: 'TODO', dates, fieldText: '' };
+  return {
+    path: 'Fixture.md', lineNumber: 1, rawLine: '- [ ] Submit', text: 'Submit', statusType: 'TODO', dates,
+    fieldText: '', fieldTextStart: 12, fieldRange: { start: 12, end: 12 }
+  };
 }
 
 function local(instant: Temporal.Instant): string {
