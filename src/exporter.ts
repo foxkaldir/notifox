@@ -35,7 +35,7 @@ interface ExporterOptions {
 }
 
 interface DiagnosticsReporter {
-  setFile(path: string, diagnostics: FileDiagnostic[]): void;
+  setFile(path: string, diagnostics: FileDiagnostic[], exportedLines?: number[]): void;
   removeFile(path: string): void;
   report(issue: OperationalDiagnostic, notify?: boolean): void;
   reportServer(issue: OperationalDiagnostic): void;
@@ -138,6 +138,7 @@ export class IncrementalReminderExporter {
   private wasHidden = false;
   private unloaded = false;
   private lastOutputBytes: string | undefined;
+  private outputVerified = false;
   private lastFailure = '';
   private lastFailureCode = '';
   private serverRetryBlocked = false;
@@ -440,6 +441,7 @@ export class IncrementalReminderExporter {
       await this.persistData();
     }
     const wroteOutput = output === undefined ? false : await this.writeOutputIfChanged(output);
+    if (this.outputVerified) this.publishFileHighlights();
     if (output !== undefined && !this.serverRetryBlocked && Date.now() >= this.nextServerRetryAt
       && (wroteOutput || this.index.serverRetryNeeded)) await this.postOutput(output);
     if (result.error) throw result.error;
@@ -487,6 +489,7 @@ export class IncrementalReminderExporter {
     for (const path of Object.keys(this.index.files)) {
       if (currentPaths.has(path)) continue;
       delete this.index.files[path];
+      this.diagnostics.removeFile(path);
       removed = true;
     }
     return removed;
@@ -587,6 +590,13 @@ export class IncrementalReminderExporter {
     return { remindersChanged: existed, indexChanged: existed };
   }
 
+  // Publishes green fields only after the current JSON snapshot is confirmed on disk.
+  private publishFileHighlights(): void {
+    for (const [path, entry] of Object.entries(this.index.files)) {
+      this.diagnostics.setFile(path, entry.diagnostics, entry.reminders.map((reminder) => reminder.line));
+    }
+  }
+
   // Builds canonical output only when it may need comparison or repair.
   private buildOutputIfNeeded(remindersChanged: boolean, inspectOutput: boolean): string | undefined {
     const serverRetryDue = this.index.serverRetryNeeded && !this.serverRetryBlocked && Date.now() >= this.nextServerRetryAt;
@@ -599,6 +609,7 @@ export class IncrementalReminderExporter {
 
   // Reads the actual output bytes for startup or foreground verification.
   private async readActualOutput(): Promise<void> {
+    this.outputVerified = false;
     try {
       this.lastOutputBytes = await this.app.vault.adapter.read(this.outputPath);
     } catch {
@@ -613,11 +624,13 @@ export class IncrementalReminderExporter {
         this.index.outputRetryNeeded = false;
         await this.persistData();
       }
+      this.outputVerified = true;
       return false;
     }
     try {
       await this.app.vault.adapter.write(this.outputPath, output);
       this.lastOutputBytes = output;
+      this.outputVerified = true;
       this.index.outputRetryNeeded = false;
       if (!isNtfyTopicUrl(this.getSettings().ntfyServer)
         && Object.values(this.index.files).some((entry) => entry.reminders.length > 0)) {
@@ -634,6 +647,10 @@ export class IncrementalReminderExporter {
       await this.persistData();
       return true;
     } catch (error) {
+      this.outputVerified = false;
+      for (const [path, entry] of Object.entries(this.index.files)) {
+        this.diagnostics.setFile(path, entry.diagnostics);
+      }
       this.index.outputRetryNeeded = true;
       await this.persistData();
       throw error;

@@ -1,13 +1,9 @@
 import { StateEffect } from '@codemirror/state';
-import {
-  Decoration, type DecorationSet, EditorView, hoverTooltip, type HoverTooltipSource, type PluginValue,
-  ViewPlugin, type ViewUpdate
-} from '@codemirror/view';
-import { editorInfoField, MarkdownView, Modal, Notice, Platform, type App, type Plugin, type Setting } from 'obsidian';
-import type { FileDiagnostic, OperationalDiagnostic } from './model';
-import {
-  renderDiagnosticTooltip, renderFileDiagnostic, renderOperationalDiagnostic, renderSettingDiagnostic
-} from './layout';
+import { Decoration, type DecorationSet, EditorView, type PluginValue, ViewPlugin, type ViewUpdate } from '@codemirror/view';
+import { editorInfoField, MarkdownView, Modal, Notice, type App, type Plugin, type Setting } from 'obsidian';
+import { reminderFieldRange } from '../integrations/obsidian-tasks-plugin';
+import { diagnosticsEqual, type FileDiagnostic, type OperationalDiagnostic } from './model';
+import { renderFileDiagnostic, renderOperationalDiagnostic, renderSettingDiagnostic } from './layout';
 
 const refreshDiagnostics = StateEffect.define<void>();
 
@@ -56,6 +52,7 @@ class DiagnosticsModal extends Modal {
 
 export class DiagnosticManager {
   private readonly files = new Map<string, FileDiagnostic[]>();
+  private readonly exportedLines = new Map<string, number[]>();
   private readonly operational = new Map<string, OperationalDiagnostic>();
   private readonly notified = new Set<string>();
   private readonly statusEl: HTMLElement;
@@ -72,7 +69,7 @@ export class DiagnosticManager {
     this.updateStatus();
   }
 
-  // Registers editor decorations and the command for the portable details surface.
+  // Registers reminder highlights and the command for the diagnostic list.
   register(): void {
     const buildDecorations = (view: EditorView) => this.buildDecorations(view);
     class DiagnosticViewPlugin implements PluginValue {
@@ -92,40 +89,9 @@ export class DiagnosticManager {
         }
       }
     }
-    this.plugin.registerEditorExtension([
-      ViewPlugin.fromClass(DiagnosticViewPlugin, {
-        decorations: (value) => value.decorations,
-        eventHandlers: {
-          click: (event) => {
-            if (!Platform.isMobileApp) return false;
-            const target = event.target as Element | null;
-            if (!target?.closest?.('.notifox-diagnostic-error, .notifox-diagnostic-warning')) return false;
-            this.open();
-            return true;
-          }
-        }
-      }),
-      hoverTooltip((view, position) => this.tooltip(view, position)),
-      EditorView.baseTheme({
-        '.notifox-diagnostic-error': {
-          textDecoration: 'underline wavy var(--text-error)',
-          textDecorationThickness: '1.5px',
-          textUnderlineOffset: '3px'
-        },
-        '.notifox-diagnostic-warning': {
-          textDecoration: 'underline dotted var(--text-warning)',
-          textUnderlineOffset: '3px'
-        },
-        '.cm-tooltip.notifox-diagnostic-tooltip-shell': {
-          backgroundColor: 'var(--background-primary)',
-          border: '1px solid var(--background-modifier-border-hover)',
-          borderRadius: 'var(--radius-m)',
-          boxShadow: 'var(--shadow-s)',
-          color: 'var(--text-normal)',
-          overflow: 'hidden'
-        }
-      })
-    ]);
+    this.plugin.registerEditorExtension(ViewPlugin.fromClass(DiagnosticViewPlugin, {
+      decorations: (value) => value.decorations
+    }));
     this.plugin.addCommand({ id: 'open-diagnostics', name: 'Open diagnostics', callback: () => this.open() });
   }
 
@@ -137,17 +103,25 @@ export class DiagnosticManager {
     this.updateStatus();
   }
 
-  // Replaces all diagnostics for one file and refreshes open editors.
-  setFile(path: string, diagnostics: FileDiagnostic[]): void {
+  // Replaces one file's issues and verified export lines, then refreshes its editors.
+  setFile(path: string, diagnostics: FileDiagnostic[], exportedLines: number[] = []): void {
+    const previousLines = this.exportedLines.get(path) ?? [];
+    if (diagnosticsEqual(this.files.get(path) ?? [], diagnostics)
+      && previousLines.length === exportedLines.length
+      && previousLines.every((line, index) => line === exportedLines[index])) return;
     if (diagnostics.length) this.files.set(path, diagnostics);
     else this.files.delete(path);
+    if (exportedLines.length) this.exportedLines.set(path, exportedLines);
+    else this.exportedLines.delete(path);
     this.refreshEditors(path);
     this.updateStatus();
   }
 
-  // Removes diagnostics belonging to a deleted or renamed file.
+  // Removes issues and export highlights for a deleted or renamed file.
   removeFile(path: string): void {
-    if (!this.files.delete(path)) return;
+    const hadIssues = this.files.delete(path);
+    const hadReminders = this.exportedLines.delete(path);
+    if (!hadIssues && !hadReminders) return;
     this.refreshEditors(path);
     this.updateStatus();
   }
@@ -242,52 +216,31 @@ export class DiagnosticManager {
     view.editor.scrollIntoView({ from: position, to: position }, true);
   }
 
-  // Builds visible mark decorations from cached line-relative diagnostics.
+  // Highlights complete reminder fields from current diagnostics and verified exports.
   private buildDecorations(view: EditorView): DecorationSet {
     const path = view.state.field(editorInfoField).file?.path;
     if (!path) return Decoration.none;
-    const ranges = (this.files.get(path) ?? []).flatMap((issue) => {
+    const issues = this.files.get(path) ?? [];
+    const errorLines = new Set(issues.map((issue) => issue.line));
+    const ranges = issues.flatMap((issue) => {
       if (issue.line < 1 || issue.line > view.state.doc.lines) return [];
       const line = view.state.doc.line(issue.line);
-      const start = Math.min(line.to, line.from + issue.range.start);
-      const end = Math.max(start + (start < line.to ? 1 : 0), Math.min(line.to, line.from + issue.range.end));
+      const field = reminderFieldRange(line.text) ?? issue.range;
+      const start = Math.min(line.to, line.from + field.start);
+      const end = Math.max(start + (start < line.to ? 1 : 0), Math.min(line.to, line.from + field.end));
       if (end <= start) return [];
-      const decoration = Decoration.mark({
-        class: issue.severity === 'warning' ? 'notifox-diagnostic-warning' : 'notifox-diagnostic-error'
-      });
+      const decoration = Decoration.mark({ class: 'notifox-reminder-error' });
       return [decoration.range(start, end)];
     });
+    for (const number of this.exportedLines.get(path) ?? []) {
+      if (errorLines.has(number) || number < 1 || number > view.state.doc.lines) continue;
+      const line = view.state.doc.line(number);
+      const field = reminderFieldRange(line.text);
+      if (!field || field.end <= field.start) continue;
+      ranges.push(Decoration.mark({ class: 'notifox-reminder-success' })
+        .range(line.from + field.start, line.from + field.end));
+    }
     return Decoration.set(ranges, true);
-  }
-
-  // Creates a hover tooltip for the diagnostic beneath the pointer.
-  private tooltip(view: EditorView, position: number): ReturnType<HoverTooltipSource> {
-    const path = view.state.field(editorInfoField).file?.path;
-    if (!path) return null;
-    const line = view.state.doc.lineAt(position);
-    const issue = (this.files.get(path) ?? []).find((candidate) => {
-      if (candidate.line !== line.number) return false;
-      const start = line.from + candidate.range.start;
-      const end = line.from + candidate.range.end;
-      return position >= start && position <= Math.max(start + 1, end);
-    });
-    if (!issue) return null;
-    const from = Math.min(line.to, line.from + issue.range.start);
-    const to = Math.max(from, Math.min(line.to, line.from + issue.range.end));
-    return {
-      pos: from,
-      end: to,
-      above: true,
-      create(editor) {
-        const dom = renderDiagnosticTooltip(editor.dom.ownerDocument, issue);
-        return {
-          dom,
-          mount() {
-            dom.parentElement?.addClass('notifox-diagnostic-tooltip-shell');
-          }
-        };
-      }
-    };
   }
 
   // Dispatches a lightweight refresh effect to editors showing the changed path.

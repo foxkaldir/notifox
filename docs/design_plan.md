@@ -37,7 +37,7 @@ For reminder syntax and syntax diagnostics, use the following precedence when sp
 1. An explicitly approved correction in `test_matrix.md`.
 2. A row-level expected parse result in `test_matrix.md`.
 3. The section-level syntax rules in `test_matrix.md`.
-4. The grammar in `reminder_grammar.md`.
+4. The grammar in [`grammar.md`](grammar.md).
 5. Implementation details and library defaults.
 
 For lifecycle, schedule materialization, identity, synchronization, persistence, and delivery behavior, this design plan is authoritative; those concerns are intentionally outside the syntax matrix.
@@ -107,7 +107,7 @@ The reminder field must appear at the start of the Tasks emoji group, after the 
 
 ## 7. Canonical Reminder Grammar
 
-The canonical parser grammar, lexical rules, units, numbers, and times are defined in the [Reminder Grammar Specification](reminder_grammar.md).
+The canonical parser grammar, lexical rules, units, numbers, and times are defined in the [Reminder Grammar Specification](grammar.md).
 
 ## 8. Canonical Intermediate Model
 
@@ -205,6 +205,22 @@ Requirements:
 - Return source ranges relative to the reminder field and the full raw line.
 - Parsing is atomic: one error invalidates the field and produces no schedule.
 - The plugin may show provisional structural errors, but the server response replaces them as canonical.
+
+### Diagnostic presentation and interaction
+
+- Treat every mounted diagnostic surface as a live projection of current issues.
+  Settings callouts, dialogs, and status indicators must refresh when issues are
+  added or cleared without requiring the user to close and reopen the surface.
+- Render each diagnostic with distinct message, code, detail, and action regions
+  so users can scan the problem, identify it, inspect context, and act on it.
+  Use [Obsidian's built-in CSS variables](https://docs.obsidian.md/Reference/CSS%20variables/About%20styling)
+  and responsive spacing so the presentation remains theme-compatible and usable
+  at narrow widths.
+- Highlight the whole reminder field, starting at the bell, in a soft theme-aware
+  green only when its reminder is present in the verified local `reminders.json`.
+  Highlight invalid fields in soft theme-aware red. Syntax errors do not open
+  hover or tap popups; the explicit diagnostics command and desktop status item
+  remain available for details. Keep settings validation errors inline.
 
 ## 12. Task Identity
 
@@ -367,7 +383,7 @@ The fingerprint covers timezone, default alert time, Tasks Global Filter and sta
 
 The additional `notifoxServer` setting (displayed as “notifox server”) is persisted in `data.json` and defaults to blank, disabling HTTP delivery. After each successful changed `reminders.json` write, the exporter POSTs the exact saved bytes to that HTTP/HTTPS URL with `Content-Type: application/json`, using [Obsidian requestUrl](https://docs.obsidian.md/Reference/TypeScript%20API/requestUrl). Requests are awaited within the serialized export batch. Changing settings queues the latest snapshot for the configured receiver. A failed POST preserves the local export and a persistent pending flag. Transient transport, `409`, `429`, and server failures retry after `Retry-After` or a 30-second default; permanent request, authentication, endpoint, and payload failures wait for an explicit retry or settings edit. Failed local writes do not POST.
 
-Reminder diagnostics are stored by file and line and displayed in the Markdown editor as theme-aware error underlines with hover details on desktop; tapping an underline on mobile opens the complete diagnostic list. The diagnostic command and desktop status item also open that list with note navigation and manual server retry. Configuration and endpoint errors use Obsidian's inline Setting error area on their associated rows. Operational notices are deduplicated by stable error code and remain represented in the persistent status and diagnostic list after the notice disappears.
+Reminder diagnostics are stored by file and line and displayed in the Markdown editor as soft red highlights over the complete reminder field, including the bell. Fields present in a verified local `reminders.json` receive soft green highlights. Neither highlight opens a hover or tap popup. The diagnostic command and desktop status item open the diagnostic list with note navigation and manual server retry. Configuration and endpoint errors use Obsidian's inline Setting error area on their associated rows. Operational notices are deduplicated by stable error code and remain represented in the persistent status and diagnostic list after the notice disappears.
 
 Obsidian exposes vault file access and mutation APIs for plugins; use vault APIs rather than direct filesystem calls. See the [Obsidian Vault API documentation](https://docs.obsidian.md/Plugins/Vault).
 

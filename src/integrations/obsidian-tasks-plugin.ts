@@ -114,6 +114,19 @@ function metadataStart(text: string): number | undefined {
   return match?.index;
 }
 
+// Locates the complete reminder field on a task line for editor highlighting.
+export function reminderFieldRange(rawLine: string): { start: number; end: number } | undefined {
+  const match = /^(?:\s*(?:[-*+]|\d+[.)])\s+\[[^\]]\]\s+)(.*)$/.exec(rawLine);
+  if (!match) return undefined;
+  const body = match[1];
+  const bell = nonCodeBellPositions(body)[0];
+  if (bell === undefined) return undefined;
+  const start = rawLine.length - body.length + bell;
+  const afterBell = bell + '🔔'.length;
+  const nextMetadata = metadataStart(body.slice(afterBell));
+  return { start, end: nextMetadata === undefined ? rawLine.length : rawLine.length - body.length + afterBell + nextMetadata };
+}
+
 function taskDates(text: string): { due?: string; scheduled?: string; start?: string } {
   const find = (emoji: string): string | undefined => new RegExp(`${emoji}\\s*(\\d{4}-\\d{2}-\\d{2})`).exec(text)?.[1];
   return { due: find('📅'), scheduled: find('⏳'), start: find('🛫') };

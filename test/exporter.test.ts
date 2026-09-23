@@ -73,6 +73,7 @@ describe('export POSTs', () => {
       { line: 1, text: 'Submit **plan**', priority: 'high', 'one-shots': [{ timestamp: '2027-04-15T09:00:00Z' }] },
       { line: 2, text: 'Review', 'one-shots': [{ timestamp: '2027-04-15T09:00:00Z' }] }
     ]);
+    expect(diagnostics.setFile).toHaveBeenCalledWith('Tasks.md', [], [1, 2]);
     expect(diagnostics.report).toHaveBeenCalledWith(expect.objectContaining({ code: 'INVALID_NTFY_TOPIC' }));
     diagnostics.report.mockClear();
     await regenerate(exporter);
@@ -140,6 +141,18 @@ describe('export POSTs', () => {
     await regenerate(failed.exporter);
     expect(requestUrl).not.toHaveBeenCalled();
     expect(failed.index.outputRetryNeeded).toBe(true);
+  });
+
+  it('does not mark a valid reminder as exported when the JSON write fails', async () => {
+    vi.setSystemTime(new Date('2027-04-01T00:00:00Z'));
+    const { exporter, app, diagnostics, write } = setup('');
+    const note = Object.assign(new TFile(), { path: 'Tasks.md', extension: 'md', stat: { mtime: 1, size: 48 } });
+    app.vault.getMarkdownFiles = () => [note];
+    app.vault.getAbstractFileByPath = () => note;
+    app.vault.cachedRead = async () => '- [ ] Submit 🔔 9am 📅 2027-04-15';
+    write.mockRejectedValueOnce(new Error('Disk full'));
+    await regenerate(exporter);
+    expect(diagnostics.setFile).not.toHaveBeenCalledWith('Tasks.md', [], [1]);
   });
 
   it('preserves local output and retries a failed POST with unchanged JSON', async () => {

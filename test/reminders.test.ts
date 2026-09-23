@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseDefaultAlertTime } from '../src/resolver';
-import { discoverTasks } from '../src/integrations/obsidian-tasks-plugin';
+import { discoverTasks, reminderFieldRange } from '../src/integrations/obsidian-tasks-plugin';
 import { timeZoneOptions } from '../src/time-zones';
 import type { StatusType } from '../src/types';
 
@@ -21,6 +21,13 @@ describe('Tasks discovery', () => {
   it('ignores inactive statuses', () => {
     const source = '- [x] #task Done 🔔 5pm 📅 2027-04-15';
     expect(discoverTasks('Tasks.md', source, configuration).tasks).toEqual([]);
+  });
+
+  it('selects the bell and expression up to Tasks metadata', () => {
+    const line = '- [ ] Write `🔔` example 🔔 5pm ⏫ 📅 2027-04-15';
+    const range = reminderFieldRange(line)!;
+    expect(line.slice(range.start, range.end)).toBe('🔔 5pm ');
+    expect(reminderFieldRange('- [ ] No reminder 📅 2027-04-15')).toBeUndefined();
   });
 });
 

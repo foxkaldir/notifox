@@ -6,10 +6,5 @@
 # test_matrix.md Guidance
 - Use explicit absolute timestamps. No “Valid time,” “Same as,” or equivalence-only substitutes.
 
-# Style Guide
-- Keep diagnostic surfaces reactive: mounted settings callouts, dialogs, and status indicators must refresh whenever issues are added or cleared.
-- Structure errors into distinct message, code, detail, and action regions; use Obsidian theme variables and responsive spacing.
-- Avoid duplicate hover feedback by ensuring only one tooltip mechanism is active for diagnostic decorations.
-
-## Documentation
+# Documentation
 - Project knowledge is indexed by `docs/README.md`; use its task routes rather than scanning `docs/`.

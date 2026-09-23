@@ -10,11 +10,20 @@
   --notifox-diagnostics-footer-gap: var(--size-4-5, 20px);
   --notifox-diagnostics-inline-gap: var(--size-4-6, 24px);
   --notifox-diagnostics-content-gap: var(--size-4-2, 8px);
-  --notifox-diagnostics-tooltip-padding: var(--size-4-3, 12px) var(--size-4-4, 16px);
 }
 
 .notifox-invalid-input {
   border-color: var(--text-error) !important;
+}
+
+.cm-editor .notifox-reminder-success {
+  background-color: color-mix(in oklch, var(--color-green) 18%, transparent);
+  border-radius: var(--radius-s);
+}
+
+.cm-editor .notifox-reminder-error {
+  background-color: color-mix(in oklch, var(--color-red) 18%, transparent);
+  border-radius: var(--radius-s);
 }
 
 .notifox-diagnostics-actions,
@@ -125,31 +134,6 @@
   margin-top: var(--notifox-diagnostics-title-gap);
 }
 
-.notifox-diagnostic-tooltip {
-  display: grid;
-  gap: var(--notifox-diagnostics-content-gap);
-  line-height: var(--line-height-normal);
-  max-width: min(32rem, 80vw);
-  padding: var(--notifox-diagnostics-tooltip-padding);
-}
-
-.notifox-diagnostic-tooltip-message {
-  color: var(--text-normal);
-}
-
-.notifox-diagnostic-tooltip-metadata {
-  align-items: baseline;
-  color: var(--text-muted);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: var(--font-ui-smaller);
-  gap: var(--size-2-2);
-}
-
-.notifox-diagnostic-tooltip-metadata code {
-  color: var(--text-muted);
-}
-
 .notifox-status {
   cursor: pointer;
 }
@@ -166,7 +150,6 @@
   :root {
     --notifox-diagnostics-modal-inset: var(--size-4-3, 12px);
     --notifox-diagnostics-inline-gap: var(--size-4-3, 12px);
-    --notifox-diagnostics-tooltip-padding: var(--size-4-3, 12px);
   }
 
   .notifox-diagnostic-item {
@@ -179,7 +162,4 @@
     justify-self: start;
   }
 
-  .notifox-diagnostic-tooltip {
-    max-width: calc(100vw - var(--size-4-6));
-  }
 }

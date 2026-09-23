@@ -33,18 +33,6 @@ export function renderFileDiagnostic(
   open.addEventListener('click', openFile);
 }
 
-// Builds the compact editor tooltip with a readable metadata line.
-export function renderDiagnosticTooltip(document: Document, issue: FileDiagnostic): HTMLElement {
-  const dom = document.createElement('div');
-  dom.className = 'notifox-diagnostic-tooltip';
-  dom.createEl('strong', { text: issue.message, cls: 'notifox-diagnostic-tooltip-message' });
-  const metadata = dom.createDiv({ cls: 'notifox-diagnostic-tooltip-metadata' });
-  metadata.createEl('code', { text: issue.code });
-  metadata.createSpan({ text: '·', cls: 'notifox-diagnostic-separator' });
-  metadata.createEl('span', { text: `${issue.source === 'local' ? 'Local' : 'Server'} validation` });
-  return dom;
-}
-
 // Uses Obsidian's inline Setting error API with a fallback for older supported releases.
 export function renderSettingDiagnostic(setting: Setting, message: string | null): void {
   const compatible = setting as Omit<Setting, 'setErrorMessage'> & {

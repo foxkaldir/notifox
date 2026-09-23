@@ -48,7 +48,7 @@ The central orchestration layer for incremental reminder export.
 - Runs bounded concurrent file reads, then calls task discovery, reminder parsing, and timestamp resolution for each file.
 - Updates the in-memory scan index and requests plugin-state persistence through the supplied callback.
 - Builds, verifies, repairs, and writes canonical `reminders.json` output only when its bytes need to change.
-- Reports regeneration results and deduplicates repeated operational errors shown to the user.
+- Reports regeneration results, publishes verified export highlights, and deduplicates repeated operational errors shown to the user.
 
 ### `src/diagnostics/`
 
@@ -56,7 +56,7 @@ The contained diagnostic model and Obsidian presentation layer.
 
 - Defines persisted file diagnostics and operational configuration, file, server, and delivery errors.
 - Classifies HTTP responses, transport failures, retry delays, URLs, and default alert times with stable codes.
-- Renders editor underlines and hover details through a CodeMirror extension.
+- Renders soft red invalid-field and soft green verified-export highlights through a CodeMirror extension.
 - Owns deduplicated notices, the desktop health item, inline setting errors, diagnostic dialog, note navigation, and retry action.
 - Keeps editable diagnostic markup in `layout.ts`; spacing controls and presentation rules are grouped in the root `styles.css`.
 
@@ -92,6 +92,7 @@ The integration and discovery layer for the Obsidian Tasks plugin.
 - Ignores completed, cancelled, non-task, and globally filtered-out items.
 - Extracts due, scheduled, and start dates plus the raw reminder-field text.
 - Rejects ambiguous reminder fields, invalid spacing, and reminder bells placed after Tasks metadata.
+- Locates the full reminder field, including its bell, for editor highlighting.
 - Passes the extracted field text to the exporter for grammar parsing in `parser.ts`.
 
 ### `src/persistence.ts`

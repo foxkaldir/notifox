@@ -46,7 +46,7 @@ it if no filter is configured. Examples use `America/Los_Angeles` and `09:00:00`
 |Repeat after previous clause|`- [ ] #task Follow up on [[Vendor approval]] #work 🔔 5pm, 9am, every hour after prev 🔼 📅 2027-04-15`|`2027-04-15 09:00:00`; `2027-04-15 10:00:00`; then hourly, including one alert at `2027-04-15 17:00:00`. With `last`, repeats would begin at `2027-04-15 18:00:00`.|
 |Explicit repeat boundary|`- [ ] #task Confirm the delivery slot in [[Office move]] #logistics 🔔 5pm, every 30m after 3pm ⏫ 📅 2027-04-15`|`2027-04-15 15:30:00`; `2027-04-15 16:00:00`; then every 30 minutes. No alert at `2027-04-15 15:00:00`; one at `2027-04-15 17:00:00`.|
 
-Invalid reminder fields are underlined in the Markdown editor. Hover the underline on desktop or tap it on mobile for details, or run **Open diagnostics** to see all outstanding reminder, configuration, file, and server issues and jump to the affected note. Configuration and endpoint errors appear inline with their settings. Desktop also shows a compact Notifox health item in the status bar.
+Reminder fields, including the bell, are highlighted soft green after they are written to `reminders.json`, or soft red when they have a syntax or resolution issue. The colors follow the current Obsidian theme. Run **Open diagnostics** to see outstanding reminder, configuration, file, and server issues and jump to the affected note. Configuration and endpoint errors appear inline with their settings. Desktop also shows a compact Notifox health item in the status bar.
 
 ## Dependencies
 
